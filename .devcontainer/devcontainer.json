@@ -1,0 +1,22 @@
+{
+  "name": "BenTT",
+
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      // Update 'VARIANT' to pick a Haskell version: 9, 8
+      "VARIANT": "9",
+      "UPGRADE_PACKAGES": "true"
+    }
+  },
+
+  // Set *default* container specific settings.json values on container create.
+  "settings": {},
+
+  "extensions": [
+    "haskell.haskell"
+  ],
+
+  "postCreateCommand": "stack build",
+  "remoteUser": "vscode"
+}
