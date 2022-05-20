@@ -4,9 +4,26 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE TypeOperators #-}
 
-module BenTT.Syntax where
+module BenTT.Syntax (
+    (:*)(..),
+    Type,
+    Term(..),
+    System,
+    Constraint(..),
+    Face(..), faceParts,
+    pi,
+    sig,
+    prod,
+    let_,
+    lam,
+    dlam,
+    path,
+    pathd,
+    arr
+) where
 
 import Bound
+import Bound.Name
 import Control.Monad (ap)
 import Data.Functor.Classes
 import Data.Functor.Classes.Generic
@@ -16,6 +33,10 @@ import Optics (Iso, iso, (&), (%~), Traversal, traversalVL)
 import Control.Applicative
 import BenTT.DeBruijn
 import Control.Monad.Trans
+import Data.Maybe
+import Prelude hiding (pi)
+import Bound.Scope
+import Data.Bifunctor
 
 infixl 2 :@
 infixl 2 :$
@@ -27,6 +48,7 @@ data (f :* g) x = f x :* g x
     deriving (Eq1, Show1, Read1) via FunctorClassesDefault (f :* g)
 bindPair :: Monad f => (f :* f) a -> (a -> f b) -> (f :* f) b
 bindPair (f :* g) k = (f >>= k) :* (g >>= k)
+
 
 type Type = Term
 data Term n
@@ -49,7 +71,7 @@ data Term n
     | Coe (Scope () Type n) (Term n) (Term n) (Term n)  -- coe (<k> A) i->j x
     | HComp (Type n) (Term n) (Term n) (Term n) (System (Scope () Term) n) -- hcomp A i->j x [i=j |> <k>x, ...]
     | Glue (Type n) (System (Type :* Term) n)  -- Glue A [i=j |> (T, E), ...]
-    | MkGlue (Type n) (System (Type :* Term) n) (Term n) (System Term n)  -- glue (Glue A sys) x [i=j |> t, ...]
+    | MkGlue (Term n) (System Term n)  -- glue x [i=j |> t, ...]
     | Unglue (Term n)  -- unglue g
     deriving (Eq, Show, Read, Functor, Foldable, Traversable, Generic, Generic1)
     deriving (Eq1, Show1, Read1) via FunctorClassesDefault Term
@@ -109,11 +131,9 @@ instance Monad Term where
     Glue ty sys >>= k = Glue
         (ty >>= k)
         (bindSys bindPair k sys)
-    MkGlue a sys x sys' >>= k = MkGlue
-        (a >>= k)
-        (bindSys bindPair k sys)
+    MkGlue x sys >>= k = MkGlue
         (x >>= k)
-        (bindSys (>>=) k sys')
+        (bindSys (>>=) k sys)
     Unglue x >>= k = Unglue (x >>= k)
 
 pi :: Eq n => n -> Type n -> Type n -> Type n
@@ -134,7 +154,7 @@ lam name ty b = Lam ty (abstract1 name b)
 dlam :: Eq n => n -> Term n -> Term n
 dlam name b = DLam (abstract1 name b)
 
-path :: Eq n => Term n -> Term n -> Term n -> Term n
+path :: Term n -> Term n -> Term n -> Term n
 path a = PathD (lift a)
 
 pathd :: Eq n => n -> Term n -> Term n -> Term n -> Term n
@@ -142,13 +162,6 @@ pathd name f = PathD (abstract1 name f)
 
 arr :: Term n -> Term n -> Term n
 a `arr` b = Pi a (Scope (Var (F b)))
-
-comp :: Scope () Type n -> Term n -> Term n -> Term n -> System (Scope () Term) n -> Term n
-comp a i j x sys = HComp
-    (instantiate1 j a)
-    i j
-    (Coe a i j x)
-    [f :> y & deBruijn %~ Coe (suc a) (Var $ B ()) (suc j) | f :> y <- sys]
-
+    
 instance IsString (Term String) where
     fromString = Var

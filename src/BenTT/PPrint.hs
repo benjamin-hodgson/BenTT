@@ -2,10 +2,12 @@ module BenTT.PPrint (pprint, pprint') where
 
 import Bound
 import Control.Monad.State
+import BenTT.DeBruijn
 import BenTT.Syntax
 import Data.List (intercalate)
 import Control.Applicative
 import Data.Traversable
+import Data.Functor
 
 
 pprint' :: Show a => Term a -> String
@@ -15,8 +17,9 @@ pprint' = pprint . fmap show
 pprint :: Term String -> String
 pprint x = evalState (pp x) 0
     where
+        pp Hole = return "_"
         pp U = return "U"
-        pp (Var v) = return v
+        pp (Var n) = return n
         pp (Ann tm ty) = do
             tm' <- pp tm
             ty' <- pp ty
@@ -26,13 +29,13 @@ pprint x = evalState (pp x) 0
             x' <- pp x
             return $ "(" ++ f' ++ ") (" ++ x' ++ ")"
         pp (Lam t b) = do
-            var <- fresh "x"
+            var <- freshen "x"
             t' <- pp t
             let b' = instantiate1 (Var var) b
             b'' <- pp b'
             return $ "\\(" ++ discard var b' ++ " : " ++ t' ++ ") -> " ++ b''
         pp (Pi d r) = do
-            var <- fresh "x"
+            var <- freshen "x"
             d' <- pp d
             let r' = instantiate1 (Var var) r
             r'' <- pp r'
@@ -40,7 +43,7 @@ pprint x = evalState (pp x) 0
                 then "(" ++ var ++ " : " ++ d' ++ ") -> " ++ r''
                 else "(" ++ d' ++ " -> " ++ r'' ++ ")"
         pp (Sig a b) = do
-            var <- fresh "x"
+            var <- freshen "x"
             a' <- pp a
             let b' = instantiate1 (Var var) b
             b'' <- pp b'
@@ -53,7 +56,7 @@ pprint x = evalState (pp x) 0
         pp (Let x t b) = do
             x' <- pp x
             t' <- pp t
-            var <- fresh "x"
+            var <- freshen "x"
             let b' = instantiate1 (Var var) b
             b'' <- pp b'
             return $ "let " ++ var ++ " : " ++ t' ++ " = " ++ x' ++ " in " ++ b''
@@ -65,19 +68,19 @@ pprint x = evalState (pp x) 0
             x' <- pp x
             return $ "(" ++ f' ++ ") @ (" ++ x' ++ ")"
         pp (DLam b) = do
-            var <- fresh "i"
+            var <- freshen "i"
             let b' = instantiate1 (Var var) b
             b'' <- pp b'
             return $ "<" ++ discard var b' ++ "> " ++ b''
         pp (PathD ty x y) = do
-            var <- fresh "i"
+            var <- freshen "i"
             let ty' = instantiate1 (Var var) ty
             ty'' <- pp ty'
             x' <- pp x
             y' <- pp y
             return $ "PathD (" ++ discard var ty' ++ ". " ++ ty'' ++ ") (" ++ x' ++ ") (" ++ y' ++ ")"
         pp (Coe ty i j x) = do
-            var <- fresh "i"
+            var <- freshen "i"
             let ty' = instantiate1 (Var var) ty
             ty'' <- pp ty'
             i' <- pp i
@@ -85,7 +88,7 @@ pprint x = evalState (pp x) 0
             x' <- pp x
             return $ "coe (" ++ ty'' ++ ") (" ++ i' ++ "->" ++ j' ++ ") (" ++ x' ++ ")"
         pp (HComp ty i j x sys) = do
-            var <- fresh "i"
+            var <- freshen "i"
             ty' <- pp ty
             i' <- pp i
             j' <- pp j
@@ -102,13 +105,11 @@ pprint x = evalState (pp x) 0
                 e' <- pp e
                 return $ "(" ++ t' ++ ", " ++ e' ++ ")"
             return $ "Glue " ++ ty' ++ " [" ++ sys' ++ "]"
-        pp (MkGlue a sys x sys1) = do
-            glue <- pp (Glue a sys)
+        pp (MkGlue x sys) = do
             x' <- pp x
-            sys' <- ppSys sys1 pp
-            return $ "glue {" ++ glue ++ "} " ++ x' ++ " [" ++ sys' ++ "]"
+            sys' <- ppSys sys pp
+            return $ "glue " ++ x' ++ " [" ++ sys' ++ "]"
         pp (Unglue x) = fmap ("unglue " ++) (pp x)
-
 
         ppSys :: System f String -> (f String -> State Int String) -> State Int String
         ppSys sys f = intercalate ", " <$> traverse (ppConstr f) sys
@@ -118,10 +119,11 @@ pprint x = evalState (pp x) 0
             x' <- f x
             return $ faces' ++ " |> " ++ x'
 
+        ppFace :: Face String -> State Int String
         ppFace (i:=j) = liftA2 (\i' j' -> i' ++ "=" ++ j') (pp i) (pp j)
 
-fresh :: String -> State Int String
-fresh hint = do
+freshen :: String -> State Int String
+freshen hint = do
     c <- get
     let v = hint ++ show c
     put (c+1)
