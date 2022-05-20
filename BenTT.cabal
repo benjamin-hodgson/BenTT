@@ -21,6 +21,7 @@ executable BenTT
         BenTT.DeBruijn,
         BenTT.Syntax,
         BenTT.Equiv,
+        BenTT.Paths,
         BenTT.PPrint,
         BenTT.TypeCheck
     build-depends:
@@ -30,4 +31,3 @@ executable BenTT
         transformers-compat,
         optics,
         generic-optics
-
