@@ -2,9 +2,12 @@ module BenTT.PPrint (pprint, pprint') where
 
 import Bound
 import Control.Monad.State
+import BenTT.DeBruijn
 import BenTT.Syntax
 import Data.List (intercalate)
 import Control.Applicative
+import Data.Traversable
+import Data.Functor
 
 
 pprint' :: Show a => Term a -> String
