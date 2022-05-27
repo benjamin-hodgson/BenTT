@@ -2,12 +2,9 @@ module BenTT.PPrint (pprint, pprint') where
 
 import Bound
 import Control.Monad.State
-import BenTT.DeBruijn
 import BenTT.Syntax
 import Data.List (intercalate)
 import Control.Applicative
-import Data.Traversable
-import Data.Functor
 
 
 pprint' :: Show a => Term a -> String
@@ -15,7 +12,7 @@ pprint' = pprint . fmap show
 
 
 pprint :: Term String -> String
-pprint x = evalState (pp x) 0
+pprint m = evalState (pp m) 0
     where
         pp Hole = return "_"
         pp U = return "U"
@@ -104,7 +101,7 @@ pprint x = evalState (pp x) 0
                 t' <- pp t
                 e' <- pp e
                 return $ "(" ++ t' ++ ", " ++ e' ++ ")"
-            return $ "Glue " ++ ty' ++ " [" ++ sys' ++ "]"
+            return $ "Glue (" ++ ty' ++ ") [" ++ sys' ++ "]"
         pp (MkGlue x sys) = do
             x' <- pp x
             sys' <- ppSys sys pp

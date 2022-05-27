@@ -60,14 +60,6 @@ whnf I0 = I0
 whnf I1 = I1
 whnf ((whnf -> DLam b) :@ i) = whnf $ instantiate1 i b
 whnf a@(_ :@ _) = a
-    -- where
-    --     handleDLam b = whnf $ instantiate1 i b
-
-    --     tryGetEndpoint expected getter = do
-    --         assertEqual i expected
-    --         ty <- infer p
-    --         tup <- assert #_PathD ty
-    --         whnf (tup^.getter)
 whnf l@(DLam _) = l
 whnf p@(PathD {}) = p
 whnf (Coe (whnf . fromScope -> U) i j x) = x
@@ -83,10 +75,10 @@ whnf (Coe (whnf . fromScope -> PathD ty m n) i j x) =
             [k := I0] :> suc (toScope m),
             [k := I1] :> suc (toScope n)]
 whnf c@(Coe a i j x)
-    -- FIXME: nf i == nf j
+    -- undefined: nf i == nf j
     | whnf i == whnf j = x
     | otherwise = c
-whnf (HComp (whnf -> U) i j x sys) = Glue x [fs :> instantiate1 j y :* (pathToEquiv :$ DLam y) | fs :> y <- sys]
+-- whnf (HComp (whnf -> U) i j x sys) = undefined
 whnf (HComp (whnf -> Pi d r) i j x sys) =
     Lam d $ hoas $ \arg ->
         let sys' = fmap suc sys
@@ -106,9 +98,9 @@ whnf (HComp (whnf -> PathD ty m n) i j x sys) =
             (suc x :@ k)
             [f :> y & deBruijn %~ (:@ suc k) | f :> y <- sys']
 whnf h@(HComp a i j x sys) =
-    -- FIXME: nf i == nf j
+    -- undefined: nf i == nf j
     case [x | f:>x <- sys, all (\(i':=j') -> whnf i' == whnf j') f] of
-        -- one of the faces can be discharged
+        -- we're on one of the tubes
         (x:_) -> whnf $ instantiate1 j x
         [] | whnf i == whnf j -> x
            | otherwise -> h
@@ -300,7 +292,11 @@ assertEqual x y | x == y = return ()  -- alpha equiv
             assertEqual a1 a2
             extend1 a1 $ assertEqual b1 b2
 
-        eq (f :@ x) (g :@ y) = assertEqual f g >> assertEqual x y
+        eq (p :@ (whnf -> I0)) y = endpoint p _2 >>= assertEqual y
+        eq (p :@ (whnf -> I1)) y = endpoint p _3 >>= assertEqual y
+        eq x (q :@ (whnf -> I0)) = endpoint q _2 >>= assertEqual x
+        eq x (q :@ (whnf -> I1)) = endpoint q _3 >>= assertEqual x
+        eq (p :@ x) (q :@ y) = assertEqual p q >> assertEqual x y
 
         -- alpha equiv
         eq (DLam (fromScope -> b1)) (DLam (fromScope -> b2))
@@ -334,6 +330,9 @@ assertEqual x y | x == y = return ()  -- alpha equiv
         eq x y
             | x == y = return ()
             | otherwise = throwError $ "mismatched type: tried to compare\n  " ++ pprint' x ++ "\nto\n  " ++ pprint' y
+
+        endpoint p getter =
+            fmap (\tup -> whnf (tup^.getter)) $ assert #_PathD =<< infer p
 
 assert :: Is k An_AffineFold => Optic' k is s a -> s -> Tc n a
 assert l x = case x^?l of
