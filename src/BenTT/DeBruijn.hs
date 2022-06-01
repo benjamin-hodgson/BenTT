@@ -23,7 +23,6 @@ import GHC.Generics
 import Bound.Scope
 import Data.Bifunctor
 
--- suc :: Term n -> Term (Var () n)
 suc :: Functor f => f n -> f (Var b n)
 suc = fmap F
 

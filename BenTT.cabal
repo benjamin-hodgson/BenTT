@@ -23,7 +23,8 @@ executable BenTT
         BenTT.Equiv,
         BenTT.Paths,
         BenTT.PPrint,
-        BenTT.TypeCheck
+        BenTT.TypeCheck,
+        BenTT.Types
     build-depends:
         base >= 4.15 && < 5,
         bound,

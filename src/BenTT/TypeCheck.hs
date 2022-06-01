@@ -1,4 +1,5 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE ViewPatterns #-}
 
@@ -23,94 +24,123 @@ import BenTT.Syntax
 import BenTT.PPrint
 import BenTT.Equiv
 import BenTT.Paths
+import BenTT.Types
 
-type Ctx n = n -> Type n
-type Tc n = ReaderT (Ctx n) (Except String)
 
-lookupTy :: n -> Tc n (Type n)
-lookupTy n = asks ($ n)
-
-extend :: (b -> Type n) -> Tc (Var b n) a -> Tc n a
-extend t = withReaderT cons
-    where
-        cons ctx (B b) = suc (t b)
-        cons ctx (F f) = suc $ ctx f
-
-extend1 :: Type n -> Tc (Var b n) a -> Tc n a
-extend1 = extend . const
-
-whnf :: (Show n, Eq n) => Term n -> Term n
-whnf Hole = Hole
-whnf U = U
-whnf v@(Var _) = v  -- free variables are stuck
+whnf :: (Show n, Eq n) => Term n -> Tc n (Term n)
+whnf Hole = return Hole
+whnf U = return U
+whnf v@(Var _) = return v
 whnf (Ann x _) = whnf x  -- discard annotations when evaluating
-whnf ((whnf -> Lam t b) :$ x) = whnf $ instantiate1 x b
-whnf a@(_ :$ _) = a  -- stuck
-whnf l@(Lam _ _) = l
-whnf p@(Pi _ _) = p
-whnf p@(Pair _ _ ) = p
-whnf s@(Sig _ _) = s
-whnf (Fst (whnf -> Pair x _)) = whnf x
-whnf m@(Fst _) = m  -- stuck
-whnf (Snd (whnf -> Pair _ y)) = whnf y
-whnf m@(Snd _) = m  -- stuck
+whnf a@(f :$ x) =
+    whnf f >>= \case
+        Lam _ b -> whnf (instantiate1 x b)
+        _ -> return a
+whnf l@(Lam _ _) = return l
+whnf p@(Pi _ _) = return p
+whnf p@(Pair _ _ ) = return p
+whnf s@(Sig _ _) = return s
+whnf m@(Fst p) =
+    whnf p >>= \case
+        Pair x _ -> whnf x
+        _ -> return m
+whnf m@(Snd p) =
+    whnf p >>= \case
+        Pair _ y -> whnf y
+        _ -> return m
 whnf (Let x _ b) = whnf $ instantiate1 x b
-whnf I = I
-whnf I0 = I0
-whnf I1 = I1
-whnf ((whnf -> DLam b) :@ i) = whnf $ instantiate1 i b
-whnf a@(_ :@ _) = a
-whnf l@(DLam _) = l
-whnf p@(PathD {}) = p
-whnf (Coe (whnf . fromScope -> U) i j x) = x
-whnf (Coe (whnf . fromScope -> Pi (toScope -> d) r) i j x) =
-    let argTy = instantiate1 j d
-    in Lam argTy $ hoas $ \arg ->
-        let coeArg = Coe (suc d) (suc j) (suc i) arg
-            returnTy = instantiate1 coeArg r
-        in Coe (lift returnTy) (suc i) (suc j) (suc x :$ coeArg)
-whnf (Coe (whnf . fromScope -> PathD ty m n) i j x) =
-    DLam $ hoas $ \k ->
-        comp ty (suc i) (suc j) (suc x :@ k) [
-            [k := I0] :> suc (toScope m),
-            [k := I1] :> suc (toScope n)]
-whnf c@(Coe a i j x)
-    -- undefined: nf i == nf j
-    | whnf i == whnf j = x
-    | otherwise = c
--- whnf (HComp (whnf -> U) i j x sys) = undefined
-whnf (HComp (whnf -> Pi d r) i j x sys) =
-    Lam d $ hoas $ \arg ->
-        let sys' = fmap suc sys
-        in HComp
-            (instantiate1 arg (suc r))
-            (suc i)
-            (suc j)
-            (suc x :$ arg)
-            [f :> m & deBruijn %~ (:$ suc arg) | f :> m <- sys']
-whnf (HComp (whnf -> PathD ty m n) i j x sys) =
-    DLam $ hoas $ \k ->
-        let sys' = fmap suc sys ++ [[k:=I0] :> lift (suc m), [k:=I1] :> lift (suc n)]
-        in HComp
-            (instantiate1 k (suc ty))
-            (suc i)
-            (suc j)
-            (suc x :@ k)
-            [f :> y & deBruijn %~ (:@ suc k) | f :> y <- sys']
+whnf I = return I
+whnf I0 = return I0
+whnf I1 = return I1
+whnf a@(p :@ i) =
+    whnf p >>= \case
+        DLam b -> whnf $ instantiate1 i b
+        _ -> do
+            i' <- whnf i
+            t <- infer p
+            case (i', t) of
+                (I0, PathD _ x _) -> whnf x
+                (I1, PathD _ _ y) -> whnf y
+                _ -> return a
+whnf l@(DLam _) = return l
+whnf p@(PathD {}) = return p
+
+-- gotta clean up these fillers
+whnf c@(Coe (fromScope -> a) i j x) =
+    extend1 I (whnf a) >>= \case
+        U -> whnf x
+        Pi (toScope -> d) r -> return $
+            Lam (instantiate1 j d) $ hoas $ \arg ->
+                Coe
+                    -- not suc-ing r inside this hoas because we want r's free variable to refer to j'
+                    (hoas $ \j' -> instantiate1 (Coe (suc (suc d)) j' (suc (suc i)) (suc arg)) (suc r))
+                    (suc i)
+                    (suc j)
+                    (suc x :$ Coe (suc d) (suc j) (suc i) arg)
+        Sig (toScope -> a) b -> return $ Pair
+            (Coe a i j (Fst x))
+            (Coe
+                -- not suc-ing b inside this hoas because we want b's free variable to refer to j'
+                (hoas $ \j' -> instantiate1 (Coe (suc a) (suc i) j' (suc $ Fst x)) b)
+                i
+                j
+                (Snd x)
+            )
+        PathD ty m n -> return $
+            DLam $ hoas $ \k ->
+                comp ty (suc i) (suc j) (suc x :@ k) [
+                    [k := I0] :> suc (toScope m),
+                    [k := I1] :> suc (toScope n)]
+        -- undefined: Glue
+        _ -> (assertEqual i j *> whnf x) <|> return c
+
 whnf h@(HComp a i j x sys) =
-    -- undefined: nf i == nf j
-    case [x | f:>x <- sys, all (\(i':=j') -> whnf i' == whnf j') f] of
-        -- we're on one of the tubes
-        (x:_) -> whnf $ instantiate1 j x
-        [] | whnf i == whnf j -> x
-           | otherwise -> h
-whnf g@(Glue _ _) = g
-whnf g@(MkGlue _ _) = g
-whnf (Unglue (whnf -> MkGlue x _)) = x
-whnf u@(Unglue _) = u
+    whnf a >>= \case
+        Pi d r -> return $
+            Lam d $ hoas $ \arg ->
+                let sys' = fmap suc sys
+                in HComp
+                    (instantiate1 arg (suc r))
+                    (suc i)
+                    (suc j)
+                    (suc x :$ arg)
+                    [f :> m & deBruijn %~ (:$ suc arg) | f :> m <- sys']
+        Sig a b -> return $
+            Pair
+                (HComp a i j (Fst x) [fs :> v & deBruijn %~ Fst | fs :> v <- sys])
+                (comp
+                    (hoas $ \j' -> instantiate1 (HComp (suc a) (suc i) j' (suc $ Fst x) [suc (fs :> v & deBruijn %~ Fst) | fs :> v <- sys]) (suc b))
+                    i
+                    j
+                    (Snd x)
+                    [fs :> v & deBruijn %~ Snd | fs:>v <- sys]
+                )
+        PathD ty m n -> return $
+            DLam $ hoas $ \k ->
+                let sys' = fmap suc sys ++ [[k:=I0] :> lift (suc m), [k:=I1] :> lift (suc n)]
+                in HComp
+                    (instantiate1 k (suc ty))
+                    (suc i)
+                    (suc j)
+                    (suc x :@ k)
+                    [f :> y & deBruijn %~ (:@ suc k) | f :> y <- sys']
+        -- undefined: U, Glue
+        _ -> asum [
+            -- are we on a wall?
+            asum [for_ fs (\(i':=j') -> assertEqual i' j') *> whnf (instantiate1 j c) | fs:>c <- sys],
+            assertEqual i j *> whnf x,
+            return h
+            ]
+
+whnf g@(Glue _ _) = return g
+whnf g@(MkGlue _ _) = return g
+whnf u@(Unglue g) =
+    whnf g >>= \case
+        MkGlue x _ -> whnf x
+        _ -> return u
 
 check :: (Show n, Eq n) => Term n -> Type n -> Tc n ()
-check x t = withError (++ "\nwhen checking " ++ pprint' x ++ " against " ++ pprint' t) $ ck x (whnf t)
+check x t = withError (++ "\nwhen checking " ++ pprint' x ++ " against " ++ pprint' t) (whnf t >>= ck x)
     where
         ck Hole t = do
             throwError $ "Found hole with type " ++ pprint' t
@@ -130,6 +160,7 @@ check x t = withError (++ "\nwhen checking " ++ pprint' x ++ " against " ++ ppri
             check t U
             check x t
             extend1 t $ check b (suc t1)
+        ck (MkGlue x sys) (Glue a sys') = undefined
         ck x t = do
             t1 <- infer x
             assertEqual t t1
@@ -137,7 +168,7 @@ check x t = withError (++ "\nwhen checking " ++ pprint' x ++ " against " ++ ppri
 infer :: (Show n, Eq n) => Term n -> Tc n (Type n)
 infer Hole = throwError "can't infer hole"
 infer U = return U  -- type in type
-infer I = throwError "I is not a type"
+infer I = throwError "I is not kan"
 infer I0 = return I
 infer I1 = return I
 infer (Var x) = lookupTy x
@@ -146,15 +177,12 @@ infer (Ann x t) = do
     check x t
     return t
 infer (f :$ x) = do
-    fty <- infer f
-    case fty of
-        Pi d r -> do
-            xSys <- check x d
-            return $ instantiate1 x r
-        _ -> throwError "expected a function type"
+    (d, r) <- assert #_Pi =<< infer f
+    check x d
+    return $ instantiate1 x r
 infer (Lam d (fromScope -> b)) = do
     check d U
-    r <- extend1 d $ infer b
+    r <- extend1 d $ inferKan b
     return $ Pi d (toScope r)
 infer (Pi d (fromScope -> r)) = do
     check d U
@@ -165,26 +193,22 @@ infer (Sig a (fromScope -> b)) = do
     check a U
     extend1 a $ check b U
     return U
-infer (Fst p) = do
-    (a, _) <- assert #_Sig . whnf =<< infer p
-    return a
+infer (Fst p) =
+    assert (#_Sig % _1) =<< whnf =<< infer p
 infer (Snd p) = do
-    (_, b) <- assert #_Sig . whnf =<< infer p
+    b <- assert (#_Sig % _2) =<< whnf =<< infer p
     return $ instantiate1 (Fst p) b
 infer (Let t x (fromScope -> b)) = do
     check t U
     check x t
-    r <- extend1 t $ infer b
+    r <- extend1 t $ inferKan b
     return (instantiate1 x (toScope r))
 infer (f :@ i) = do
-    fty <- infer f
-    case fty of
-        PathD a _ _ -> do
-            check i I
-            return $ instantiate1 i a
-        _ -> throwError "expected a path type"
+    a <- assert (#_PathD % _1) =<< infer f
+    check i I
+    return $ instantiate1 i a
 infer (DLam b) = do
-    a <- extend1 I $ infer (fromScope b)
+    a <- extend1 I $ inferKan (fromScope b)
     return (PathD (toScope a) (instantiate1 I0 b) (instantiate1 I1 b))
 infer (PathD ty x y) = do
     extend1 I $ check (fromScope ty) U
@@ -209,12 +233,11 @@ infer (HComp ty i j x sys) = do
             withError (++ "\n when checking the base of the face " ++ foldMapOf (traversed % faceParts) pprint' fs) $ checkBase subst x y
             -- the faces should agree with each other (at all k) where they meet
             checkAdjacent subst y
-            return ()
     return ty
 
     where
         checkTypes (faces :> y) = do
-            traverse_ (\(i:=j) -> check i I >> check j I) faces
+            traverse_ (\(i:=j) -> check i I *> check j I) faces
             extend1 I $ check (fromScope y) (suc ty)
 
         solveFaces [] = Just emptySubst
@@ -241,30 +264,24 @@ infer (HComp ty i j x sys) = do
 infer (Glue a sys) = do
     check a U
     for_ sys $ \(faces :> b :* e) -> do
-        traverse_ (\(i:=j) -> check i I >> check j I) faces
+        traverse_ (\(i:=j) -> check i I *> check j I) faces
         check b U
-        -- check that e is an equivalence between a and b
-        undefined
-        -- check that the constraints agree when they meet
-        undefined
+        check e (equiv :$ a :$ b)
+        -- undefined: check that the constraints agree when they meet
     return U
 infer (MkGlue x sys) = throwError "need type annotation for glue"
-infer (Unglue x) = do
-    (ty, sys) <- assert #_Glue =<< infer x
-    return ty
+infer (Unglue x) = assert (#_Glue % _1) =<< infer x
 
 
 assertEqual :: (Show n, Eq n) => Term n -> Term n -> Tc n ()
-assertEqual x y | x == y = return ()  -- alpha equiv
-                | otherwise = eq (whnf x) (whnf y)
+assertEqual x y = join $ eq <$> whnf x <*> whnf y
     where
         eq (f :$ x) (g :$ y)
-            = assertEqual f g >> assertEqual x y
+            = assertEqual f g *> assertEqual x y
 
-        -- alpha equiv
         eq (Lam t (fromScope -> b1)) (Lam _ (fromScope -> b2))
             = extend1 t $ assertEqual b1 b2  -- assume types equal
-        -- beta-eta equiv
+        -- eta
         eq (Lam t (fromScope -> b1)) y
             = extend1 t $ assertEqual b1 (suc y :$ Var (B ()))
         eq x (Lam t (fromScope -> b1))
@@ -277,7 +294,7 @@ assertEqual x y | x == y = return ()  -- alpha equiv
         eq (Pair x1 y1) (Pair x2 y2) = do
             assertEqual x1 x2
             assertEqual y1 y2
-        -- eta equiv
+        -- eta
         eq (Pair x y) p = do
             assertEqual x (Fst p)
             assertEqual y (Snd p)
@@ -292,38 +309,33 @@ assertEqual x y | x == y = return ()  -- alpha equiv
             assertEqual a1 a2
             extend1 a1 $ assertEqual b1 b2
 
-        eq (p :@ (whnf -> I0)) y = endpoint p _2 >>= assertEqual y
-        eq (p :@ (whnf -> I1)) y = endpoint p _3 >>= assertEqual y
-        eq x (q :@ (whnf -> I0)) = endpoint q _2 >>= assertEqual x
-        eq x (q :@ (whnf -> I1)) = endpoint q _3 >>= assertEqual x
-        eq (p :@ x) (q :@ y) = assertEqual p q >> assertEqual x y
+        eq (p :@ x) (q :@ y) = assertEqual p q *> assertEqual x y
 
-        -- alpha equiv
         eq (DLam (fromScope -> b1)) (DLam (fromScope -> b2))
             = extend1 I $ assertEqual b1 b2
-        -- beta-eta equiv
+        -- eta
         eq (DLam (fromScope -> b1)) y
             = extend1 I $ assertEqual b1 (suc y :@ Var (B ()))
         eq x (DLam (fromScope -> b1))
             = extend1 I $ assertEqual (suc x :@ Var (B ())) b1
 
         eq (PathD (fromScope -> t1) x1 y1) (PathD (fromScope -> t2) x2 y2)
-            = extend1 I (assertEqual t1 t2) >> assertEqual x1 x2 >> assertEqual y1 y2
+            = extend1 I (assertEqual t1 t2) *> assertEqual x1 x2 *> assertEqual y1 y2
 
         eq (Coe (fromScope -> t1) i1 j1 x1) (Coe (fromScope -> t2) i2 j2 x2) = do
             extend1 I (assertEqual t1 t2)
             assertEqual i1 i2
             assertEqual j1 j2
             assertEqual x1 x2
-        -- coe _ i i x = x
-        eq (Coe t i j x) y = do
-            assertEqual i j
-            assertEqual x y
-        eq x (Coe t i j y) = do
-            assertEqual i j
-            assertEqual x y
 
-        -- eq hcomp
+        eq (HComp a1 i1 j1 x1 sys1) (HComp a2 i2 j2 x2 sys2) = do
+            assertEqual a1 a2
+            assertEqual i1 i2
+            assertEqual j1 j2
+            assertEqual x1 x2
+            eqSys sys1 sys2
+        
+        -- undefined: Glue, MkGlue, Unglue
 
         eq (Ann _ _) _ = error "shouldn't be possible after whnf"
         eq _ (Ann _ _) = error "shouldn't be possible after whnf"
@@ -331,13 +343,22 @@ assertEqual x y | x == y = return ()  -- alpha equiv
             | x == y = return ()
             | otherwise = throwError $ "mismatched type: tried to compare\n  " ++ pprint' x ++ "\nto\n  " ++ pprint' y
 
-        endpoint p getter =
-            fmap (\tup -> whnf (tup^.getter)) $ assert #_PathD =<< infer p
+        eqSys sys1 sys2 = undefined
+
 
 assert :: Is k An_AffineFold => Optic' k is s a -> s -> Tc n a
 assert l x = case x^?l of
     Just y -> return y
     Nothing -> throwError "mismatched type"
+
+
+inferKan :: (Show n, Eq n) => Term n -> Tc n (Type n)
+inferKan m = do
+    t <- infer m
+    if t == I
+    then throwError "I is not kan"
+    else return t
+
 
 withError :: MonadError e m => (e -> e) -> m a -> m a
 withError f m = catchError m (throwError . f)
