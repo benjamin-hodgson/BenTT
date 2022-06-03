@@ -7,7 +7,9 @@ module BenTT.Equiv (
     equiv,
     idIsEquiv,
     idEquiv,
-    pathToEquiv
+    pathToEquiv,
+    coeIsEquiv,
+    coeEquiv
 ) where
 
 import Prelude hiding (pi)
@@ -66,11 +68,34 @@ idEquiv = unsafeClosed' $ lam "A" U $
     `Ann`
     (equiv :$ "A" :$ "A")
 
--- pathToEquiv (A B : U) (p : Path U A B) : equiv A B =
---   coe (i. equiv A (p@i)) 0 1 (idEquiv A)
+idTm a = Lam a $ hoas id
+
+-- pathToEquiv (A B : U) (p : Path U A B) : equiv A B
+--   = coe (i. equiv A (p@i)) 0 1 (idEquiv A)
 pathToEquiv = unsafeClosed' $ lam "A" U $ lam "B" U $ lam "p" (path U "A" "B") $
     Coe (abstract1 "i" (equiv :$ "A" :$ ("p":@"i"))) I0 I1 (idEquiv :$ "A")
     `Ann`
     (equiv :$ "A" :$ "B")
 
-idTm a = Lam a $ hoas id
+-- coeIsEquiv (A : I -> U) (r r' : I) : isEquiv (\(x : A@r). coe A r r' x)
+--   = coe (i. isEquiv (coe A r i)) r r' (idEquiv (A@r))
+coeIsEquiv :: Scope () Term n -> Term n
+coeIsEquiv a = DLam $ hoas $ \r -> DLam $ hoas $ \r' ->
+    let a0 = suc $ instantiate1 r (suc a)
+    in
+        Coe
+            (hoas $ \i -> isEquiv :$ Lam (suc a0) (hoas $ Coe (suc4 a) (suc3 r) (suc i)))
+            (suc r)
+            r'
+            (idEquiv :$ a0)
+        `Ann`
+        (isEquiv :$ Lam a0 (hoas $ Coe (suc3 a) (suc2 r) (suc r')))
+
+coeEquiv :: Scope () Term n -> Term n
+coeEquiv a = DLam $ hoas $ \r -> DLam $ hoas $ \r' ->
+    let a0 = suc $ instantiate1 r (suc a)
+        a1 = instantiate1 r' (suc (suc a))
+    in Pair (Lam a0 $ hoas $ Coe (suc3 a) (suc2 r) (suc r')) (coeIsEquiv (suc2 a) :@ suc r :@ r')
+        `Ann`
+        (equiv :$ a0 :$ a1)
+

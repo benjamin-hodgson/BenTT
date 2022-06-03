@@ -66,52 +66,61 @@ whnf l@(DLam _) = return l
 whnf p@(PathD {}) = return p
 
 -- gotta clean up these fillers
-whnf c@(Coe (fromScope -> a) i j x) =
+whnf c@(Coe (fromScope -> a) r r' x) =
     extend1 I (whnf a) >>= \case
         U -> whnf x
-        Pi (toScope -> d) r -> return $
-            Lam (instantiate1 j d) $ hoas $ \arg ->
+        Pi (toScope -> dom) range -> return $
+            Lam (instantiate1 r' dom) $ hoas $ \arg ->
                 Coe
-                    -- not suc-ing r inside this hoas because we want r's free variable to refer to j'
-                    (hoas $ \j' -> instantiate1 (Coe (suc (suc d)) j' (suc (suc i)) (suc arg)) (suc r))
-                    (suc i)
-                    (suc j)
-                    (suc x :$ Coe (suc d) (suc j) (suc i) arg)
+                    -- `fmap suc range`, not `suc range`, because we want range's `B ()` to refer to `j`
+                    (hoas $ \j -> instantiate1 (Coe (suc2 dom) j (suc2 r) (suc arg)) (fmap suc range))
+                    (suc r)
+                    (suc r')
+                    (suc x :$ Coe (suc dom) (suc r') (suc r) arg)
         Sig (toScope -> a) b -> return $ Pair
-            (Coe a i j (Fst x))
+            (Coe a r r' (Fst x))
             (Coe
-                -- not suc-ing b inside this hoas because we want b's free variable to refer to j'
-                (hoas $ \j' -> instantiate1 (Coe (suc a) (suc i) j' (suc $ Fst x)) b)
-                i
-                j
+                -- not suc-ing b inside this hoas because we want b's free variable to refer to j
+                (hoas $ \j -> instantiate1 (Coe (suc a) (suc r) j (suc $ Fst x)) b)
+                r
+                r'
                 (Snd x)
             )
         PathD ty m n -> return $
             DLam $ hoas $ \k ->
-                comp ty (suc i) (suc j) (suc x :@ k) [
-                    [k := I0] :> suc (toScope m),
-                    [k := I1] :> suc (toScope n)]
+                comp
+                    -- `ty` is a scope over `k` with a free variable `r`.
+                    -- We want to compose in the `r` direction;
+                    -- the newly free variable after xchg will refer to `k`
+                    (xchgScope ty)
+                    (suc r)
+                    (suc r')
+                    (suc x :@ k)
+                    [
+                        [k := I0] :> suc (toScope m),
+                        [k := I1] :> suc (toScope n)
+                    ]
         -- undefined: Glue
-        _ -> (assertEqual i j *> whnf x) <|> return c
+        _ -> (assertEqual r r' *> whnf x) <|> return c
 
-whnf h@(HComp a i j x sys) =
+whnf h@(HComp a r r' x sys) =
     whnf a >>= \case
-        Pi d r -> return $
-            Lam d $ hoas $ \arg ->
+        Pi dom range -> return $
+            Lam dom $ hoas $ \arg ->
                 let sys' = fmap suc sys
                 in HComp
-                    (instantiate1 arg (suc r))
-                    (suc i)
-                    (suc j)
+                    (instantiate1 arg (suc range))
+                    (suc r)
+                    (suc r')
                     (suc x :$ arg)
                     [f :> m & deBruijn %~ (:$ suc arg) | f :> m <- sys']
         Sig a b -> return $
             Pair
-                (HComp a i j (Fst x) [fs :> v & deBruijn %~ Fst | fs :> v <- sys])
+                (HComp a r r' (Fst x) [fs :> v & deBruijn %~ Fst | fs :> v <- sys])
                 (comp
-                    (hoas $ \j' -> instantiate1 (HComp (suc a) (suc i) j' (suc $ Fst x) [suc (fs :> v & deBruijn %~ Fst) | fs :> v <- sys]) (suc b))
-                    i
-                    j
+                    (hoas $ \j -> instantiate1 (HComp (suc a) (suc r) j (suc $ Fst x) [suc (fs :> v & deBruijn %~ Fst) | fs :> v <- sys]) (suc b))
+                    r
+                    r'
                     (Snd x)
                     [fs :> v & deBruijn %~ Snd | fs:>v <- sys]
                 )
@@ -120,15 +129,16 @@ whnf h@(HComp a i j x sys) =
                 let sys' = fmap suc sys ++ [[k:=I0] :> lift (suc m), [k:=I1] :> lift (suc n)]
                 in HComp
                     (instantiate1 k (suc ty))
-                    (suc i)
-                    (suc j)
+                    (suc r)
+                    (suc r')
                     (suc x :@ k)
                     [f :> y & deBruijn %~ (:@ suc k) | f :> y <- sys']
-        -- undefined: U, Glue
+        U -> return $ Glue x ([fs :> (instantiate1 r' b :* (coeEquiv b :@ r' :@ r)) | fs :> b <- sys] ++ [[r:=r'] :> x :* (idEquiv :$ x)])
+        -- undefined: Glue
         _ -> asum [
             -- are we on a wall?
-            asum [for_ fs (\(i':=j') -> assertEqual i' j') *> whnf (instantiate1 j c) | fs:>c <- sys],
-            assertEqual i j *> whnf x,
+            asum [for_ fs (\(i:=j) -> assertEqual i j) *> whnf (instantiate1 r' c) | fs:>c <- sys],
+            assertEqual r r' *> whnf x,  -- we're on a road to nowhere
             return h
             ]
 
@@ -215,16 +225,16 @@ infer (PathD ty x y) = do
     check x (instantiate1 I0 ty)
     check y (instantiate1 I1 ty)
     return U
-infer (Coe ty i j x) = do
+infer (Coe ty r r' x) = do
     extend1 I $ check (fromScope ty) U
-    check i I
-    check j I
-    check x (instantiate1 i ty)
-    return $ instantiate1 j ty
-infer (HComp ty i j x sys) = do
+    check r I
+    check r' I
+    check x (instantiate1 r ty)
+    return $ instantiate1 r' ty
+infer (HComp ty r r' x sys) = do
     check ty U
-    check i I
-    check j I
+    check r I
+    check r' I
     check x ty
     traverse_ checkTypes sys  -- the constraints should be well formed
     for_ sys $ \(fs:>y) -> do
@@ -247,12 +257,12 @@ infer (HComp ty i j x sys) = do
             | i == j = solveFaces fs
             | otherwise = Nothing
 
-        composeFaceSubst i j fs = do
-            let fs' = fs & traversed % faceParts %~ substitute i j
+        composeFaceSubst r r' fs = do
+            let fs' = fs & traversed % faceParts %~ substitute r r'
             subst <- solveFaces fs'
-            return $ addToSubst i j subst
+            return $ addToSubst r r' subst
 
-        checkBase subst x y = assertEqual (applySubst subst x) (applySubst subst $ instantiate1 i y)
+        checkBase subst x y = assertEqual (applySubst subst x) (applySubst subst $ instantiate1 r y)
 
         checkAdjacent subst y =
             let sys' = [fs & traversed % faceParts %~ applySubst subst :> z & deBruijn %~ applySubst (suc subst) | fs:>z <- sys]
