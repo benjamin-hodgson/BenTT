@@ -21,6 +21,7 @@ executable BenTT
         BenTT.DeBruijn,
         BenTT.Syntax,
         BenTT.Equiv,
+        BenTT.Eval,
         BenTT.Paths,
         BenTT.PPrint,
         BenTT.TypeCheck,

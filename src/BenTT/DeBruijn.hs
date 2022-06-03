@@ -18,15 +18,15 @@ module BenTT.DeBruijn (
     unsafeClosed, unsafeClosed'
 ) where
 
-import Optics (Iso, iso, (&), traversed, (%), _2, (%~))
+import Data.Bifunctor
+import Data.Maybe (fromJust)
+import GHC.Generics
+
 import Bound
-import Bound.Name
+import Bound.Scope
 import Data.Functor.Classes
 import Data.Functor.Classes.Generic
-import Data.Maybe
-import GHC.Generics
-import Bound.Scope
-import Data.Bifunctor
+import Optics (Iso, iso, (&), traversed, (%), _2, (%~))
 
 suc :: Functor f => f n -> f (Var b n)
 suc = fmap F

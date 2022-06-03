@@ -1,15 +1,12 @@
 {-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module BenTT.TypeCheck (check, infer, whnf) where
+module BenTT.TypeCheck (check, infer, assertEqual) where
 
-import Bound
 import Control.Applicative
 import Control.Monad.Except
 import Control.Monad.Reader
-import Optics hiding ((:>))
 import Data.Foldable (asum, for_, traverse_)
 import Data.Traversable (for)
 import Data.Functor
@@ -19,138 +16,20 @@ import Data.Maybe (fromJust)
 import Data.Monoid
 import Data.Generics.Product (the)
 import GHC.Generics
+
+import Bound
+import Optics hiding ((:>))
+
 import BenTT.DeBruijn
-import BenTT.Syntax
-import BenTT.PPrint
 import BenTT.Equiv
 import BenTT.Paths
+import BenTT.PPrint
+import BenTT.Syntax
 import BenTT.Types
 
 
-whnf :: (Show n, Eq n) => Term n -> Tc n (Term n)
-whnf Hole = return Hole
-whnf U = return U
-whnf v@(Var _) = return v
-whnf (Ann x _) = whnf x  -- discard annotations when evaluating
-whnf a@(f :$ x) =
-    whnf f >>= \case
-        Lam _ b -> whnf (instantiate1 x b)
-        _ -> return a
-whnf l@(Lam _ _) = return l
-whnf p@(Pi _ _) = return p
-whnf p@(Pair _ _ ) = return p
-whnf s@(Sig _ _) = return s
-whnf m@(Fst p) =
-    whnf p >>= \case
-        Pair x _ -> whnf x
-        _ -> return m
-whnf m@(Snd p) =
-    whnf p >>= \case
-        Pair _ y -> whnf y
-        _ -> return m
-whnf (Let x _ b) = whnf $ instantiate1 x b
-whnf I = return I
-whnf I0 = return I0
-whnf I1 = return I1
-whnf a@(p :@ i) =
-    whnf p >>= \case
-        DLam b -> whnf $ instantiate1 i b
-        _ -> do
-            i' <- whnf i
-            t <- infer p
-            case (i', t) of
-                (I0, PathD _ x _) -> whnf x
-                (I1, PathD _ _ y) -> whnf y
-                _ -> return a
-whnf l@(DLam _) = return l
-whnf p@(PathD {}) = return p
-
--- gotta clean up these fillers
-whnf c@(Coe (fromScope -> a) r r' x) =
-    extend1 I (whnf a) >>= \case
-        U -> whnf x
-        Pi (toScope -> dom) range -> return $
-            Lam (instantiate1 r' dom) $ hoas $ \arg ->
-                Coe
-                    -- `fmap suc range`, not `suc range`, because we want range's `B ()` to refer to `j`
-                    (hoas $ \j -> instantiate1 (Coe (suc2 dom) j (suc2 r) (suc arg)) (fmap suc range))
-                    (suc r)
-                    (suc r')
-                    (suc x :$ Coe (suc dom) (suc r') (suc r) arg)
-        Sig (toScope -> a) b -> return $ Pair
-            (Coe a r r' (Fst x))
-            (Coe
-                -- not suc-ing b inside this hoas because we want b's free variable to refer to j
-                (hoas $ \j -> instantiate1 (Coe (suc a) (suc r) j (suc $ Fst x)) b)
-                r
-                r'
-                (Snd x)
-            )
-        PathD ty m n -> return $
-            DLam $ hoas $ \k ->
-                comp
-                    -- `ty` is a scope over `k` with a free variable `r`.
-                    -- We want to compose in the `r` direction;
-                    -- the newly free variable after xchg will refer to `k`
-                    (xchgScope ty)
-                    (suc r)
-                    (suc r')
-                    (suc x :@ k)
-                    [
-                        [k := I0] :> suc (toScope m),
-                        [k := I1] :> suc (toScope n)
-                    ]
-        -- undefined: Glue
-        _ -> (assertEqual r r' *> whnf x) <|> return c
-
-whnf h@(HComp a r r' x sys) =
-    whnf a >>= \case
-        Pi dom range -> return $
-            Lam dom $ hoas $ \arg ->
-                let sys' = fmap suc sys
-                in HComp
-                    (instantiate1 arg (suc range))
-                    (suc r)
-                    (suc r')
-                    (suc x :$ arg)
-                    [f :> m & deBruijn %~ (:$ suc arg) | f :> m <- sys']
-        Sig a b -> return $
-            Pair
-                (HComp a r r' (Fst x) [fs :> v & deBruijn %~ Fst | fs :> v <- sys])
-                (comp
-                    (hoas $ \j -> instantiate1 (HComp (suc a) (suc r) j (suc $ Fst x) [suc (fs :> v & deBruijn %~ Fst) | fs :> v <- sys]) (suc b))
-                    r
-                    r'
-                    (Snd x)
-                    [fs :> v & deBruijn %~ Snd | fs:>v <- sys]
-                )
-        PathD ty m n -> return $
-            DLam $ hoas $ \k ->
-                let sys' = fmap suc sys ++ [[k:=I0] :> lift (suc m), [k:=I1] :> lift (suc n)]
-                in HComp
-                    (instantiate1 k (suc ty))
-                    (suc r)
-                    (suc r')
-                    (suc x :@ k)
-                    [f :> y & deBruijn %~ (:@ suc k) | f :> y <- sys']
-        U -> return $ Glue x ([fs :> (instantiate1 r' b :* (coeEquiv b :@ r' :@ r)) | fs :> b <- sys] ++ [[r:=r'] :> x :* (idEquiv :$ x)])
-        -- undefined: Glue
-        _ -> asum [
-            -- are we on a wall?
-            asum [for_ fs (\(i:=j) -> assertEqual i j) *> whnf (instantiate1 r' c) | fs:>c <- sys],
-            assertEqual r r' *> whnf x,  -- we're on a road to nowhere
-            return h
-            ]
-
-whnf g@(Glue _ _) = return g
-whnf g@(MkGlue _ _) = return g
-whnf u@(Unglue g) =
-    whnf g >>= \case
-        MkGlue x _ -> whnf x
-        _ -> return u
-
 check :: (Show n, Eq n) => Term n -> Type n -> Tc n ()
-check x t = withError (++ "\nwhen checking " ++ pprint' x ++ " against " ++ pprint' t) (whnf t >>= ck x)
+check x t = withError (++ "\nwhen checking " ++ pprint' x ++ " against " ++ pprint' t) (eval t >>= ck x)
     where
         ck Hole t = do
             throwError $ "Found hole with type " ++ pprint' t
@@ -204,9 +83,9 @@ infer (Sig a (fromScope -> b)) = do
     extend1 a $ check b U
     return U
 infer (Fst p) =
-    assert (#_Sig % _1) =<< whnf =<< infer p
+    assert (#_Sig % _1) =<< eval =<< infer p
 infer (Snd p) = do
-    b <- assert (#_Sig % _2) =<< whnf =<< infer p
+    b <- assert (#_Sig % _2) =<< eval =<< infer p
     return $ instantiate1 (Fst p) b
 infer (Let t x (fromScope -> b)) = do
     check t U
@@ -284,7 +163,7 @@ infer (Unglue x) = assert (#_Glue % _1) =<< infer x
 
 
 assertEqual :: (Show n, Eq n) => Term n -> Term n -> Tc n ()
-assertEqual x y = join $ eq <$> whnf x <*> whnf y
+assertEqual x y = join $ eq <$> eval x <*> eval y
     where
         eq (f :$ x) (g :$ y)
             = assertEqual f g *> assertEqual x y
@@ -347,8 +226,8 @@ assertEqual x y = join $ eq <$> whnf x <*> whnf y
         
         -- undefined: Glue, MkGlue, Unglue
 
-        eq (Ann _ _) _ = error "shouldn't be possible after whnf"
-        eq _ (Ann _ _) = error "shouldn't be possible after whnf"
+        eq (Ann _ _) _ = error "shouldn't be possible after eval"
+        eq _ (Ann _ _) = error "shouldn't be possible after eval"
         eq x y
             | x == y = return ()
             | otherwise = throwError $ "mismatched type: tried to compare\n  " ++ pprint' x ++ "\nto\n  " ++ pprint' y
@@ -368,7 +247,3 @@ inferKan m = do
     if t == I
     then throwError "I is not kan"
     else return t
-
-
-withError :: MonadError e m => (e -> e) -> m a -> m a
-withError f m = catchError m (throwError . f)

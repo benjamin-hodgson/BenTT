@@ -12,13 +12,15 @@ module BenTT.Equiv (
     coeEquiv
 ) where
 
-import Prelude hiding (pi)
-import Bound
 import Control.Monad.Trans
 import Data.Maybe
-import BenTT.Syntax
-import BenTT.Paths
+import Prelude hiding (pi)
+
+import Bound
+
 import BenTT.DeBruijn
+import BenTT.Paths
+import BenTT.Syntax
 
 
 -- isContr (A : U) = Sig (x : A) ((y : A) -> y = x)
