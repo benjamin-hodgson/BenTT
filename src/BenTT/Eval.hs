@@ -1,12 +1,14 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ViewPatterns #-}
-{-# LANGUAGE TupleSections #-}
 
 module BenTT.Eval (whnf) where
 
 import Control.Applicative
+import Control.Monad
 import Control.Monad.Trans
 import Data.Foldable
+import Data.Functor
+import Data.Maybe
 
 import Bound
 import Optics hiding ((:>))
@@ -17,9 +19,6 @@ import BenTT.Paths
 import BenTT.Syntax
 import BenTT.Types
 import BenTT.TypeCheck
-import Data.Maybe
-import Control.Monad
-import Data.Functor
 
 whnf :: (Show n, Eq n) => Term n -> Tc n (Term n)
 whnf Hole = return Hole
@@ -140,13 +139,21 @@ whnf h@(HComp a r r' x sys) =
 
 whnf g@(Glue _ sys) =
     evalSys sys >>= \case
-        [] -> return g
         ((b:*_):_) -> whnf b
-whnf g@(MkGlue _ _) = undefined
+        [] -> return g
+whnf g@(MkGlue x sys) =
+    evalSys sys >>= \case
+        (y:_) -> whnf y
+        _ -> return g
 whnf u@(Unglue g) =
     whnf g >>= \case
         MkGlue x _ -> whnf x
-        _ -> return u
+        x -> infer g >>= \case
+            Glue a sys -> evalSys sys >>= \case
+                ((_ :* equiv):_) -> whnf $ Fst equiv :$ x
+                _ -> return u
+            _ -> return u
+
 
 evalSys :: (Show n, Eq n) => System f n -> Tc n [f n]
 evalSys sys = map (\(cof:>x) -> x) <$> filterM active sys

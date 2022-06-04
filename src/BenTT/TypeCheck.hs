@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module BenTT.TypeCheck (check, infer, assertEqual) where
+module BenTT.TypeCheck (check, infer, assertEqual, assert) where
 
 import Control.Applicative
 import Control.Monad.Except
@@ -171,31 +171,24 @@ infer (Unglue x) = assert (#_Glue % _1) =<< infer x
 assertEqual :: (Show n, Eq n) => Term n -> Term n -> Tc n ()
 assertEqual x y = join $ eq <$> eval x <*> eval y
     where
-        eq (f :$ x) (g :$ y)
-            = assertEqual f g *> assertEqual x y
+        eq (f :$ x) (g :$ y) = do
+            assertEqual f g
+            assertEqual x y
 
         eq (Lam t (fromScope -> b1)) (Lam _ (fromScope -> b2))
             = extend1 t $ assertEqual b1 b2  -- assume types equal
-        -- eta
-        eq (Lam t (fromScope -> b1)) y
-            = extend1 t $ assertEqual b1 (suc y :$ Var (B ()))
-        eq x (Lam t (fromScope -> b1))
-            = extend1 t $ assertEqual (suc x :$ Var (B ())) b1
+        eq (Lam t (fromScope -> b)) f = etaLam t b f
+        eq f (Lam t (fromScope -> b)) = etaLam t b f
 
         eq (Pi d1 (fromScope -> r1)) (Pi d2 (fromScope -> r2)) = do
             assertEqual d1 d2
-            extend1 d1 $ assertEqual r1 r2  -- d1 == d2 by now
+            extend1 d1 $ assertEqual r1 r2
 
         eq (Pair x1 y1) (Pair x2 y2) = do
             assertEqual x1 x2
             assertEqual y1 y2
-        -- eta
-        eq (Pair x y) p = do
-            assertEqual x (Fst p)
-            assertEqual y (Snd p)
-        eq p (Pair x y) = do
-            assertEqual (Fst p) x
-            assertEqual (Snd p) y
+        eq (Pair x y) p = etaPair x y p
+        eq p (Pair x y) = etaPair x y p
 
         eq (Fst p1) (Fst p2) = assertEqual p1 p2
         eq (Snd p1) (Snd p2) = assertEqual p1 p2
@@ -204,18 +197,19 @@ assertEqual x y = join $ eq <$> eval x <*> eval y
             assertEqual a1 a2
             extend1 a1 $ assertEqual b1 b2
 
-        eq (p :@ x) (q :@ y) = assertEqual p q *> assertEqual x y
+        eq (p :@ x) (q :@ y) = do
+            assertEqual p q
+            assertEqual x y
 
         eq (DLam (fromScope -> b1)) (DLam (fromScope -> b2))
             = extend1 I $ assertEqual b1 b2
-        -- eta
-        eq (DLam (fromScope -> b1)) y
-            = extend1 I $ assertEqual b1 (suc y :@ Var (B ()))
-        eq x (DLam (fromScope -> b1))
-            = extend1 I $ assertEqual (suc x :@ Var (B ())) b1
+        eq (DLam (fromScope -> b)) p = etaDLam b p
+        eq p (DLam (fromScope -> b)) = etaDLam b p
 
-        eq (PathD (fromScope -> t1) x1 y1) (PathD (fromScope -> t2) x2 y2)
-            = extend1 I (assertEqual t1 t2) *> assertEqual x1 x2 *> assertEqual y1 y2
+        eq (PathD (fromScope -> t1) x1 y1) (PathD (fromScope -> t2) x2 y2) = do
+            extend1 I (assertEqual t1 t2)
+            assertEqual x1 x2
+            assertEqual y1 y2
 
         eq (Coe (fromScope -> t1) i1 j1 x1) (Coe (fromScope -> t2) i2 j2 x2) = do
             extend1 I (assertEqual t1 t2)
@@ -230,14 +224,33 @@ assertEqual x y = join $ eq <$> eval x <*> eval y
             assertEqual x1 x2
             eqSys sys1 sys2
         
-        -- undefined: Glue, MkGlue, Unglue
+        eq (Glue a1 sys1) (Glue a2 sys2) = do
+            assertEqual a1 a2
+            eqSys sys1 sys2
 
-        eq (Ann _ _) _ = error "shouldn't be possible after eval"
-        eq _ (Ann _ _) = error "shouldn't be possible after eval"
+        eq (MkGlue x1 sys1) (MkGlue x2 sys2) = do
+            assertEqual x1 x2
+            eqSys sys1 sys2
+        eq (MkGlue x sys) g = etaMkGlue x sys g
+        eq g (MkGlue x sys) = etaMkGlue x sys g
+
+        eq (Unglue g1) (Unglue g2) = assertEqual g1 g2
+
+        eq (Ann _ _) _ = error "eval should discard annotations"
+        eq _ (Ann _ _) = error "eval should discard annotations"
         eq x y
             | x == y = return ()
             | otherwise = throwError $ "mismatched type: tried to compare\n  " ++ pprint' x ++ "\nto\n  " ++ pprint' y
 
+        etaLam t b f = extend1 t $ assertEqual b (suc f :$ Var (B ()))
+        etaDLam b p = extend1 I $ assertEqual b (suc p :@ Var (B ()))
+        etaPair x y p = do
+            assertEqual x (Fst p)
+            assertEqual y (Snd p)
+        etaMkGlue x sys g = do
+            assertEqual x (Unglue g)
+            eqSys sys [cof:>g | cof:>_ <- sys]
+        
         eqSys sys1 sys2 = undefined
 
 
