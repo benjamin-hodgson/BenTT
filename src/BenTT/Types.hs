@@ -1,44 +1,64 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE RankNTypes #-}
 
 module BenTT.Types (
     Ctx, Eval,
     Tc, runTc,
-    withError,
     eval,
     lookupTy,
     extend,
-    extend1
+    extend1,
+    withError
     ) where
 
-import Control.Monad.Except
-import Control.Monad.Reader
-
 import Bound
+import Optics
 
 import BenTT.Syntax
 import BenTT.DeBruijn
 import Control.Applicative
+import Control.Monad.Error.Class
+import Control.Monad
 
 
 type Ctx n = n -> Type n
-newtype Tc n a = Tc { unTc :: ReaderT (Ctx n, ReifiedEval) (Except String) a }
-    deriving (Functor, Applicative, Monad, MonadError String, MonadPlus, Alternative)
 type Eval = forall n. (Show n, Eq n) => Term n -> Tc n (Term n)
+newtype Tc n a = Tc { runTc :: Ctx n -> Eval -> Either String a }
 
-newtype ReifiedEval = ReifiedEval Eval
+instance Functor (Tc n) where
+    fmap = liftM
+instance Applicative (Tc n) where
+    pure = return
+    (<*>) = ap
+instance Monad (Tc n) where
+    return x = Tc $ \_ _ -> return x
+    m >>= k = Tc $ \ctx eval -> do
+        a <- runTc m ctx eval
+        runTc (k a) ctx eval
 
-runTc :: Tc n a -> Ctx n -> Eval -> Either String a
-runTc (Tc tc) ctx eval = runExcept $ runReaderT tc (ctx, ReifiedEval eval)
+instance MonadError String (Tc n) where
+    throwError err = Tc $ \_ _ -> throwError err
+    m `catchError` k = Tc $ \ctx eval ->
+        case runTc m ctx eval of
+            Right x -> Right x
+            Left err -> runTc (k err) ctx eval
+
+instance Alternative (Tc n) where
+    empty = mzero
+    (<|>) = mplus
+instance MonadPlus (Tc n) where
+    mzero = throwError ""
+    m `mplus` g = m `catchError` const g
 
 eval :: (Show n, Eq n) => Term n -> Tc n (Term n)
-eval m = Tc (asks snd) >>= \(ReifiedEval f) -> f m
+eval m = Tc (\ctx e -> runTc (e m) ctx e)
 
 lookupTy :: n -> Tc n (Type n)
-lookupTy n = Tc $ asks (\(ctx, _) -> ctx n)
+lookupTy n = Tc $ \ctx _ -> pure $ ctx n
 
 extend :: (b -> Type n) -> Tc (Var b n) a -> Tc n a
-extend t = Tc . withReaderT (\(ctx, eval) -> (cons t ctx, eval)) . unTc
+extend t tc = Tc $ \ctx -> runTc tc (cons t ctx)
     where
         cons t ctx (B b) = suc (t b)
         cons t ctx (F f) = suc (ctx f)

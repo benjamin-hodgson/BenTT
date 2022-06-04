@@ -106,13 +106,13 @@ whnf h@(HComp a r r' x sys) =
                     [f :> m & deBruijn %~ (:$ suc arg) | f :> m <- sys']
         Sig a b -> return $
             Pair
-                (HComp a r r' (Fst x) [fs :> v & deBruijn %~ Fst | fs :> v <- sys])
+                (HComp a r r' (Fst x) [cof :> v & deBruijn %~ Fst | cof :> v <- sys])
                 (comp
-                    (hoas $ \j -> instantiate1 (HComp (suc a) (suc r) j (suc $ Fst x) [suc (fs :> v & deBruijn %~ Fst) | fs :> v <- sys]) (suc b))
+                    (hoas $ \j -> instantiate1 (HComp (suc a) (suc r) j (suc $ Fst x) [suc (cof :> v & deBruijn %~ Fst) | cof :> v <- sys]) (suc b))
                     r
                     r'
                     (Snd x)
-                    [fs :> v & deBruijn %~ Snd | fs:>v <- sys]
+                    [cof :> v & deBruijn %~ Snd | cof:>v <- sys]
                 )
         PathD ty m n -> return $
             DLam $ hoas $ \k ->
@@ -123,17 +123,17 @@ whnf h@(HComp a r r' x sys) =
                     (suc r')
                     (suc x :@ k)
                     [f :> y & deBruijn %~ (:@ suc k) | f :> y <- sys']
-        U -> return $ Glue x ([fs :> (instantiate1 r' b :* (coeEquiv b :@ r' :@ r)) | fs :> b <- sys] ++ [[r:=r'] :> x :* (idEquiv :$ x)])
+        U -> return $ Glue x ([cof :> (instantiate1 r' b :* (coeEquiv b :@ r' :@ r)) | cof :> b <- sys] ++ [[r:=r'] :> x :* (idEquiv :$ x)])
         -- undefined: Glue
         _ -> asum [
             -- are we on a wall?
-            asum [for_ fs (\(i:=j) -> assertEqual i j) *> whnf (instantiate1 r' c) | fs:>c <- sys],
+            asum [for_ cof (\(i:=j) -> assertEqual i j) *> whnf (instantiate1 r' c) | cof:>c <- sys],
             assertEqual r r' *> whnf x,  -- we're on a road to nowhere
             return h
             ]
 
-whnf g@(Glue _ _) = return g
-whnf g@(MkGlue _ _) = return g
+whnf g@(Glue ty sys) = undefined
+whnf g@(MkGlue _ _) = undefined
 whnf u@(Unglue g) =
     whnf g >>= \case
         MkGlue x _ -> whnf x

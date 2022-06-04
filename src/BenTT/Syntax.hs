@@ -90,7 +90,7 @@ faceParts :: Traversal (Face n) (Face m) (Term n) (Term m)
 faceParts = traversalVL $ \f (i:=j) -> liftA2 (:=) (f i) (f j)
 
 bindSys :: (f n -> (n -> Term m) -> f m) -> (n -> Term m) -> System f n -> System f m
-bindSys embed k sys = [[(i >>= k) := (j >>= k) | i:=j <- faces] :> embed x k | faces :> x <- sys]
+bindSys embed k sys = [[(i >>= k) := (j >>= k) | i:=j <- cof] :> embed x k | cof :> x <- sys]
 
 instance Applicative Term where
     pure = Var

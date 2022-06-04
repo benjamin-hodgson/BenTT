@@ -116,10 +116,10 @@ pprint m = evalState (pp m) 0
         ppSys :: System f String -> (f String -> State Int String) -> State Int String
         ppSys sys f = intercalate ", " <$> traverse (ppConstr f) sys
 
-        ppConstr f (faces :> x) = do
-            faces' <- unwords <$> traverse ppFace faces
+        ppConstr f (cof :> x) = do
+            cof' <- unwords <$> traverse ppFace cof
             x' <- f x
-            return $ faces' ++ " |> " ++ x'
+            return $ cof' ++ " |> " ++ x'
 
         ppFace :: Face String -> State Int String
         ppFace (i:=j) = liftA2 (\i' j' -> i' ++ "=" ++ j') (pp i) (pp j)
