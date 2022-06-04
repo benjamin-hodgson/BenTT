@@ -1,15 +1,12 @@
 module BenTT.PPrint (pprint, pprint') where
 
-import Control.Applicative
-import Control.Monad.State
-import Data.Functor
+import Control.Applicative (liftA2)
+import Control.Monad.State (State, evalState, put, get)
 import Data.List (intercalate)
-import Data.Traversable
 
-import Bound
+import Bound (instantiate1)
 
-import BenTT.DeBruijn
-import BenTT.Syntax
+import BenTT.Syntax (Term(..), Constraint(..), Face(..), (:*)(..), System)
 
 
 pprint' :: Show a => Term a -> String

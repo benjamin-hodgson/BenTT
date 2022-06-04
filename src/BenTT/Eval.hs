@@ -3,22 +3,21 @@
 
 module BenTT.Eval (whnf) where
 
-import Control.Applicative
-import Control.Monad
-import Control.Monad.Trans
-import Data.Foldable
-import Data.Functor
-import Data.Maybe
+import Control.Applicative ((<|>), empty)
+import Control.Monad (filterM)
+import Control.Monad.Trans (lift)
+import Data.Foldable (asum, traverse_)
+import Data.Functor (($>))
 
-import Bound
-import Optics hiding ((:>))
+import Bound (fromScope, instantiate1, toScope)
+import Optics ((&), (%~))
 
-import BenTT.DeBruijn
-import BenTT.Equiv
-import BenTT.Paths
-import BenTT.Syntax
-import BenTT.Types
-import BenTT.TypeCheck
+import BenTT.DeBruijn (deBruijn, hoas, suc, suc2, xchgScope)
+import BenTT.Equiv (coeEquiv, idEquiv)
+import BenTT.Paths (comp)
+import BenTT.Syntax (Term(..), Constraint(..), Face(..), System, (:*)(..))
+import BenTT.Types (Tc, extend1)
+import BenTT.TypeCheck (infer, assertEqual)
 
 whnf :: (Show n, Eq n) => Term n -> Tc n (Term n)
 whnf Hole = return Hole

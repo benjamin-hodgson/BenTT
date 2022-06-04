@@ -4,28 +4,39 @@
 
 module BenTT.TypeCheck (check, infer, assertEqual, assert) where
 
-import Control.Applicative
-import Control.Monad.Except
-import Control.Monad.Reader
+import Control.Monad.Except ( join, throwError )
 import Data.Foldable (asum, for_, traverse_)
 import Data.Traversable (for)
-import Data.Functor
-import Data.Functor.Classes
-import Data.Functor.Classes.Generic
 import Data.Maybe (fromJust)
-import Data.Monoid
-import Data.Generics.Product (the)
-import GHC.Generics
 
-import Bound
-import Optics hiding ((:>))
+import Bound (Var(..), fromScope, instantiate1, toScope, substitute )
+import Optics (
+    Optic',
+    Is,
+    An_AffineFold,
+    foldMapOf,
+    traversed,
+    _1,
+    _2,
+    (&),
+    (%),
+    (%~),
+    (^?)
+    )
 
-import BenTT.DeBruijn
-import BenTT.Equiv
-import BenTT.Paths
-import BenTT.PPrint
-import BenTT.Syntax
-import BenTT.Types
+import BenTT.DeBruijn (Subst, addToSubst, applySubst, emptySubst, suc, deBruijn)
+import BenTT.Equiv (equiv)
+import BenTT.PPrint (pprint')
+import BenTT.Syntax (
+    Term(..),
+    Constraint(..),
+    Face(..),
+    (:*)(..),
+    System,
+    Type,
+    faceParts
+    )
+import BenTT.Types (Tc, extend1, lookupTy, eval, withError)
 
 
 check :: (Show n, Eq n) => Term n -> Type n -> Tc n ()

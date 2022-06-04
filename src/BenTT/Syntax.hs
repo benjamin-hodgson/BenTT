@@ -22,21 +22,17 @@ module BenTT.Syntax (
     arr
 ) where
 
-import Control.Applicative
+import Control.Applicative (Applicative(..))
 import Control.Monad (ap)
-import Control.Monad.Trans
-import Data.Bifunctor
-import Data.Maybe
-import Data.String
-import GHC.Generics
+import Control.Monad.Trans (lift)
+import Data.String (IsString(..))
+import GHC.Generics (Generic, Generic1)
 import Prelude hiding (pi)
 
-import Bound
-import Data.Functor.Classes
-import Data.Functor.Classes.Generic
-import Optics (Iso, iso, (&), (%~), Traversal, traversalVL)
-
-import BenTT.DeBruijn
+import Bound (Scope(..), Var(F), abstract1, (>>>=))
+import Data.Functor.Classes (Eq1, Read1, Show1)
+import Data.Functor.Classes.Generic (FunctorClassesDefault(..))
+import Optics (Iso, Traversal, (&), (%~), traversalVL, iso)
 
 infixl 2 :@
 infixl 2 :$

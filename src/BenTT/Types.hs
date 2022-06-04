@@ -12,14 +12,13 @@ module BenTT.Types (
     withError
     ) where
 
-import Bound
-import Optics
+import Bound (Var(..))
 
-import BenTT.Syntax
-import BenTT.DeBruijn
-import Control.Applicative
-import Control.Monad.Error.Class
-import Control.Monad
+import BenTT.Syntax (Term, Type)
+import BenTT.DeBruijn (suc)
+import Control.Applicative (Alternative(..))
+import Control.Monad.Error.Class (MonadError(..))
+import Control.Monad (MonadPlus(..), ap, liftM)
 
 
 type Ctx n = n -> Type n

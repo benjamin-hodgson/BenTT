@@ -18,15 +18,11 @@ module BenTT.DeBruijn (
     unsafeClosed, unsafeClosed'
 ) where
 
-import Data.Bifunctor
 import Data.Maybe (fromJust)
-import GHC.Generics
+import GHC.Generics (Generic)
 
-import Bound
-import Bound.Scope
-import Data.Functor.Classes
-import Data.Functor.Classes.Generic
-import Optics (Iso, iso, (&), traversed, (%), _2, (%~))
+import Bound (Scope, Var(B, F), fromScope, toScope, substitute, closed)
+import Optics (Iso, iso, (&), (%~))
 
 suc :: Functor f => f n -> f (Var b n)
 suc = fmap F
@@ -60,7 +56,7 @@ newtype Subst f n = Subst { unSubst :: [(n, f n)] }
 emptySubst = Subst []
 
 addToSubst :: (Eq n, Monad f) => n -> f n -> Subst f n -> Subst f n
-addToSubst n x (Subst subst) = Subst $ (n, x) : subst & traversed % _2 %~ substitute n x
+addToSubst n x (Subst subst) = Subst $ (n, x) : [(m, substitute n x y) | (m, y) <- subst]
 
 applySubst :: (Eq n, Monad f) => Subst f n -> f n -> f n
 applySubst s m = foldr (uncurry substitute) m (unSubst s)

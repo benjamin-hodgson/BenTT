@@ -6,14 +6,25 @@ module BenTT.Paths (
     sym
 ) where
 
-import Control.Monad.Trans
+import Control.Monad.Trans (lift)
 import Prelude hiding (pi)
 
-import Bound
-import Optics hiding ((:>))
+import Bound (Scope, Var(B), instantiate1)
+import Optics ((&), (%~))
 
 import BenTT.DeBruijn (hoas, suc, unsafeClosed', deBruijn)
-import BenTT.Syntax
+import BenTT.Syntax (
+    Term(..),
+    Face(..),
+    Constraint(..),
+    Type,
+    System,
+    arr,
+    dlam,
+    lam,
+    path,
+    pi
+    )
 
 
 refl :: Term n -> Term n

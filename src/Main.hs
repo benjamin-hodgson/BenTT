@@ -2,18 +2,16 @@
 
 module Main where
 
+import Control.Monad.Except (lift)
 import Prelude hiding (pi)
-import Bound
-import Data.Void
-import Control.Monad.Except
-import Control.Monad.Reader
-import BenTT.Syntax
-import BenTT.PPrint
-import BenTT.TypeCheck
-import BenTT.Equiv
-import BenTT.Eval
-import BenTT.Paths
-import BenTT.Types
+
+import BenTT.Eval (whnf)
+import BenTT.Paths (sym)
+import BenTT.PPrint (pprint)
+import BenTT.Syntax (Term(..))
+import BenTT.TypeCheck (infer)
+import BenTT.Types (runTc)
+
 
 main :: IO ()
 main =
