@@ -1,5 +1,6 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE TupleSections #-}
 
 module BenTT.Eval (whnf) where
 
@@ -16,6 +17,9 @@ import BenTT.Paths
 import BenTT.Syntax
 import BenTT.Types
 import BenTT.TypeCheck
+import Data.Maybe
+import Control.Monad
+import Data.Functor
 
 whnf :: (Show n, Eq n) => Term n -> Tc n (Term n)
 whnf Hole = return Hole
@@ -123,18 +127,29 @@ whnf h@(HComp a r r' x sys) =
                     (suc r')
                     (suc x :@ k)
                     [f :> y & deBruijn %~ (:@ suc k) | f :> y <- sys']
-        U -> return $ Glue x ([cof :> (instantiate1 r' b :* (coeEquiv b :@ r' :@ r)) | cof :> b <- sys] ++ [[r:=r'] :> x :* (idEquiv :$ x)])
+        U -> whnf $ Glue x ([cof :> (instantiate1 r' b :* (coeEquiv b :@ r' :@ r)) | cof :> b <- sys] ++ [[r:=r'] :> x :* (idEquiv :$ x)])
         -- undefined: Glue
         _ -> asum [
             -- are we on a wall?
-            asum [for_ cof (\(i:=j) -> assertEqual i j) *> whnf (instantiate1 r' c) | cof:>c <- sys],
+            evalSys sys >>= \case
+                [] -> empty
+                (c:_) -> whnf (instantiate1 r' c),
             assertEqual r r' *> whnf x,  -- we're on a road to nowhere
             return h
             ]
 
-whnf g@(Glue ty sys) = undefined
+whnf g@(Glue _ sys) =
+    evalSys sys >>= \case
+        [] -> return g
+        ((b:*_):_) -> whnf b
 whnf g@(MkGlue _ _) = undefined
 whnf u@(Unglue g) =
     whnf g >>= \case
         MkGlue x _ -> whnf x
         _ -> return u
+
+evalSys :: (Show n, Eq n) => System f n -> Tc n [f n]
+evalSys sys = map (\(cof:>x) -> x) <$> filterM active sys
+    where
+        active (cof:>x) = assertOnCof cof $> True <|> pure False
+        assertOnCof = traverse_ (\(i:=j) -> assertEqual i j)
