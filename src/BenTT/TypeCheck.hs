@@ -60,13 +60,13 @@ check x t = withError (++ "\nwhen checking " ++ pprint' x ++ " against " ++ ppri
             check t U
             check x t
             extend1 t $ check b (suc t1)
-        ck (MkGlue x sys) (Glue ty sys') = do
+        ck (MkBox x sys) (Box r r' ty sys') = do
             check x ty
             -- undefined: check that the sys cofibration agrees with the sys' one
             for_ sys $ \(cof:>y) -> do
-                for (findAdjacent cof sys') $ \(subst, t :* equiv) -> do
-                    check y t
-                    assertEqual x (Fst equiv :$ y)
+                for (findAdjacent cof sys') $ \(subst, t) -> do
+                    check y (instantiate1 r' t)
+                    assertEqual (Coe t r r' x) y
         ck x t = do
             t1 <- infer x
             assertEqual t t1
@@ -167,16 +167,15 @@ infer (HComp ty r r' x sys) = do
                     let [y', z'] = fmap (applySubst (suc subst') . fromScope) [y, z]
                     in extend1 I $ assertEqual y' z'
 
-infer (Glue ty sys) = do
+infer (Box r r' ty sys) = do
     check ty U
-    for_ sys $ \(cof :> b :* e) -> do
+    for_ sys $ \(cof :> (fromScope -> b)) -> do
         traverse_ (\(i:=j) -> check i I *> check j I) cof
-        check b U
-        check e (equiv :$ b :$ ty)
+        extend1 I $ check b U
         -- undefined: check that the constraints agree when they meet
     return U
-infer (MkGlue x sys) = throwError "need type annotation for glue"
-infer (Unglue x) = assert (#_Glue % _1) =<< infer x
+infer (MkBox x sys) = throwError "need type annotation for box"
+infer (Unbox r r' x) = assert (#_Box % _1) =<< infer x
 
 
 assertEqual :: (Show n, Eq n) => Term n -> Term n -> Tc n ()
@@ -235,17 +234,21 @@ assertEqual x y = join $ eq <$> eval x <*> eval y
             assertEqual x1 x2
             eqSys sys1 sys2
         
-        eq (Glue a1 sys1) (Glue a2 sys2) = do
+        eq (Box r1 s1 a1 sys1) (Box r2 s2 a2 sys2) = do
+            assertEqual r1 r2
+            assertEqual s1 s2
             assertEqual a1 a2
             eqSys sys1 sys2
 
-        eq (MkGlue x1 sys1) (MkGlue x2 sys2) = do
+        eq (MkBox x1 sys1) (MkBox x2 sys2) = do
             assertEqual x1 x2
             eqSys sys1 sys2
-        eq (MkGlue x sys) g = etaMkGlue x sys g
-        eq g (MkGlue x sys) = etaMkGlue x sys g
+        -- undefined: eta
 
-        eq (Unglue g1) (Unglue g2) = assertEqual g1 g2
+        eq (Unbox r1 s1 g1) (Unbox r2 s2 g2) = do
+            assertEqual r1 r2
+            assertEqual s1 s2
+            assertEqual g1 g2
 
         eq (Ann _ _) _ = error "eval should discard annotations"
         eq _ (Ann _ _) = error "eval should discard annotations"
@@ -258,9 +261,6 @@ assertEqual x y = join $ eq <$> eval x <*> eval y
         etaPair x y p = do
             assertEqual x (Fst p)
             assertEqual y (Snd p)
-        etaMkGlue x sys g = do
-            assertEqual x (Unglue g)
-            eqSys sys [cof:>g | cof:>_ <- sys]
         
         eqSys sys1 sys2 = undefined
 

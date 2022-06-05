@@ -57,7 +57,7 @@ whnf a@(p :@ i) =
 whnf l@(DLam _) = return l
 whnf p@(PathD {}) = return p
 
--- gotta clean up these fillers
+-- undefined: gotta clean up these fillers
 whnf c@(Coe (fromScope -> a) r r' x) =
     extend1 I (whnf a) >>= \case
         U -> whnf x
@@ -92,7 +92,7 @@ whnf c@(Coe (fromScope -> a) r r' x) =
                         [k := I0] :> suc (toScope m),
                         [k := I1] :> suc (toScope n)
                     ]
-        -- undefined: Glue
+        -- undefined: Box
         _ -> (assertEqual r r' *> whnf x) <|> return c
 
 whnf h@(HComp a r r' x sys) =
@@ -125,33 +125,35 @@ whnf h@(HComp a r r' x sys) =
                     (suc r')
                     (suc x :@ k)
                     [f :> y & deBruijn %~ (:@ suc k) | f :> y <- sys']
-        U -> whnf $ Glue x ([cof :> (instantiate1 r' b :* (coeEquiv b :@ r' :@ r)) | cof :> b <- sys] ++ [[r:=r'] :> x :* (idEquiv :$ x)])
-        -- undefined: Glue
+        U -> whnf $ Box r r' x sys
+        -- undefined: Box
         _ -> asum [
             -- are we on a wall?
             evalSys sys >>= \case
-                [] -> empty
-                (c:_) -> whnf (instantiate1 r' c),
+                (c:_) -> whnf (instantiate1 r' c)
+                [] -> empty,
             assertEqual r r' *> whnf x,  -- we're on a road to nowhere
             return h
             ]
 
-whnf g@(Glue _ sys) =
+whnf b@(Box r r' a sys) =
     evalSys sys >>= \case
-        ((b:*_):_) -> whnf b
-        [] -> return g
-whnf g@(MkGlue x sys) =
+        (b:_) -> whnf (instantiate1 r' b)
+        [] -> assertEqual r r' *> whnf a
+            <|> return b
+whnf b@(MkBox x sys) =
     evalSys sys >>= \case
         (y:_) -> whnf y
-        _ -> return g
-whnf u@(Unglue g) =
-    whnf g >>= \case
-        MkGlue x _ -> whnf x
-        x -> infer g >>= \case
-            Glue a sys -> evalSys sys >>= \case
-                ((_ :* equiv):_) -> whnf $ Fst equiv :$ x
-                _ -> return u
-            _ -> return u
+        _ -> return b
+whnf u@(Unbox r r' b) =
+    whnf b >>= \case
+        MkBox x _ -> whnf x
+        x -> infer b >>= \case
+            Box r r' a sys -> evalSys sys >>= \case
+                (b:_) -> whnf $ Coe b r' r x
+                _ -> assertEqual r r' $> x <|> return u
+            _ -> assertEqual r r' $> x <|> return u
+    
 
 
 evalSys :: (Show n, Eq n) => System f n -> Tc n [f n]

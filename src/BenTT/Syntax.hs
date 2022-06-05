@@ -64,11 +64,11 @@ data Term n
     | Term n :@ Term n
     | DLam (Scope () Term n)
     | PathD (Scope () Type n) (Term n) (Term n)  -- PathD (<k> A) m n
-    | Coe (Scope () Type n) (Term n) (Term n) (Term n)  -- coe (<k> A) i->j x
-    | HComp (Type n) (Term n) (Term n) (Term n) (System (Scope () Term) n) -- hcomp A i->j x [i=j |> <k>x, ...]
-    | Glue (Type n) (System (Type :* Term) n)  -- Glue A [i=j |> (T, E), ...]
-    | MkGlue (Term n) (System Term n)  -- glue x [i=j |> t, ...]
-    | Unglue (Term n)  -- unglue g
+    | Coe (Scope () Type n) (Term n) (Term n) (Term n)  -- coe (<k> A) r->r' x
+    | HComp (Type n) (Term n) (Term n) (Term n) (System (Scope () Term) n) -- hcomp A r->r' x [i=j |> <k>y, ...]
+    | Box (Term n) (Term n) (Term n) (System (Scope () Term) n)  -- hcomp U r->r' A [i=j |> <k>B, ...]
+    | MkBox (Term n) (System Term n)  -- mkbox x [i=j |> y, ...]
+    | Unbox (Term n) (Term n) (Term n)  -- Unbox r<-r' g
     deriving (Eq, Show, Read, Functor, Foldable, Traversable, Generic, Generic1)
     deriving (Eq1, Show1, Read1) via FunctorClassesDefault Term
 
@@ -113,24 +113,26 @@ instance Monad Term where
     (f :@ x) >>= k = (f >>= k) :@ (x >>= k)
     DLam b >>= k = DLam (b >>>= k)
     PathD t x y >>= k = PathD (t >>>= k) (x >>= k) (y >>= k)
-    Coe ty i j x >>= k = Coe
+    Coe ty r r' x >>= k = Coe
         (ty >>>= k)
-        (i >>= k)
-        (j >>= k)
+        (r >>= k)
+        (r' >>= k)
         (x >>= k)
-    HComp ty i j x sys >>= k = HComp
+    HComp ty r r' x sys >>= k = HComp
         (ty >>= k)
-        (i >>= k)
-        (j >>= k)
+        (r >>= k)
+        (r' >>= k)
         (x >>= k)
         (bindSys (>>>=) k sys)
-    Glue ty sys >>= k = Glue
-        (ty >>= k)
-        (bindSys bindPair k sys)
-    MkGlue x sys >>= k = MkGlue
+    Box r r' a sys >>= k = Box
+        (r >>= k)
+        (r' >>= k)
+        (a >>= k)
+        (bindSys (>>>=) k sys)
+    MkBox x sys >>= k = MkBox
         (x >>= k)
         (bindSys (>>=) k sys)
-    Unglue x >>= k = Unglue (x >>= k)
+    Unbox r r' b >>= k = Unbox (r >>= k) (r' >>= k) (b >>= k)
 
 pi :: Eq n => n -> Type n -> Type n -> Type n
 pi name d r = Pi d (abstract1 name r)

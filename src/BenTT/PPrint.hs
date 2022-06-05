@@ -78,37 +78,35 @@ pprint m = evalState (pp m) 0
             x' <- pp x
             y' <- pp y
             return $ "PathD (" ++ discard var ty' ++ ". " ++ ty'' ++ ") (" ++ x' ++ ") (" ++ y' ++ ")"
-        pp (Coe ty i j x) = do
+        pp (Coe ty r s x) = do
             var <- freshen "i"
             let ty' = instantiate1 (Var var) ty
             ty'' <- pp ty'
-            i' <- pp i
-            j' <- pp j
+            r' <- pp r
+            s' <- pp s
             x' <- pp x
-            return $ "coe (" ++ ty'' ++ ") (" ++ i' ++ "->" ++ j' ++ ") (" ++ x' ++ ")"
-        pp (HComp ty i j x sys) = do
+            return $ "coe (" ++ ty'' ++ ") (" ++ r' ++ "->" ++ s' ++ ") (" ++ x' ++ ")"
+        pp (HComp ty r s x sys) = do
             var <- freshen "i"
             ty' <- pp ty
-            i' <- pp i
-            j' <- pp j
+            r' <- pp r
+            s' <- pp s
             x' <- pp x
             sys' <- ppSys sys $ \m -> do
                 let m' = instantiate1 (Var var) m
                 m'' <- pp m'
                 return $ discard var m' ++ ". " ++ m''
-            return $ "hcomp (" ++ ty' ++ ") (" ++ i' ++ "->" ++ j' ++ ") (" ++ x' ++ ") [" ++ sys' ++ "]"
-        pp (Glue ty sys) = do
-            ty' <- pp ty
-            sys' <- ppSys sys $ \(t :* e) -> do
-                t' <- pp t
-                e' <- pp e
-                return $ "(" ++ t' ++ ", " ++ e' ++ ")"
-            return $ "Glue (" ++ ty' ++ ") [" ++ sys' ++ "]"
-        pp (MkGlue x sys) = do
+            return $ "hcomp (" ++ ty' ++ ") (" ++ r' ++ "->" ++ s' ++ ") (" ++ x' ++ ") [" ++ sys' ++ "]"
+        pp (Box r s ty sys) = pp $ HComp U r s ty sys
+        pp (MkBox x sys) = do
             x' <- pp x
             sys' <- ppSys sys pp
-            return $ "glue " ++ x' ++ " [" ++ sys' ++ "]"
-        pp (Unglue x) = fmap ("unglue " ++) (pp x)
+            return $ "box " ++ x' ++ " [" ++ sys' ++ "]"
+        pp (Unbox r s x) = do
+            r' <- pp r
+            s' <- pp s
+            x' <- pp x
+            return $ "Unbox (" ++ r' ++ "<-" ++ s' ++ ") (" ++ x' ++ ")"
 
         ppSys :: System f String -> (f String -> State Int String) -> State Int String
         ppSys sys f = intercalate ", " <$> traverse (ppConstr f) sys
