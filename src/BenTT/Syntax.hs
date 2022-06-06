@@ -69,7 +69,7 @@ data Term n
     | HComp (Type n) (Term n) (Term n) (Term n) (System (Scope () Term) n) -- hcomp A r->r' x [i=j |> <k>y, ...]
     | Box (Term n) (Term n) (Term n) (System (Scope () Term) n)  -- hcomp U r->r' A [i=j |> <k>B, ...]
     | MkBox (Term n) (System Term n)  -- mkbox x [i=j |> y, ...]
-    | Unbox (Term n) (Term n) (Term n)  -- Unbox r<-r' g
+    | Unbox (Term n) (Term n) (Term n) (System (Scope () Type) n)  -- Unbox r<-r' g [i=j |> <k>B, ...]
     deriving (Eq, Show, Read, Functor, Foldable, Traversable, Generic, Generic1)
     deriving (Eq1, Show1, Read1) via FunctorClassesDefault Term
 
@@ -138,7 +138,11 @@ instance Monad Term where
     MkBox x sys >>= k = MkBox
         (x >>= k)
         (bindSys (>>=) k sys)
-    Unbox r r' b >>= k = Unbox (r >>= k) (r' >>= k) (b >>= k)
+    Unbox r r' b sys >>= k = Unbox
+        (r >>= k)
+        (r' >>= k)
+        (b >>= k)
+        (bindSys (>>>=) k sys)
 
 pi :: Eq n => n -> Type n -> Type n -> Type n
 pi name d r = Pi d (abstract1 name r)

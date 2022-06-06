@@ -102,11 +102,16 @@ pprint m = evalState (pp m) 0
             x' <- pp x
             sys' <- ppSys sys pp
             return $ "box " ++ x' ++ " [" ++ sys' ++ "]"
-        pp (Unbox r s x) = do
+        pp (Unbox r s x sys) = do
+            var <- freshen "i"
             r' <- pp r
             s' <- pp s
             x' <- pp x
-            return $ "Unbox (" ++ r' ++ "<-" ++ s' ++ ") (" ++ x' ++ ")"
+            sys' <- ppSys sys $ \m -> do
+                let m' = instantiate1 (Var var) m
+                m'' <- pp m'
+                return $ discard var m' ++ ". " ++ m''
+            return $ "Unbox (" ++ r' ++ "<-" ++ s' ++ ") (" ++ x' ++ ") [" ++ sys' ++ "]"
 
         ppSys :: System f String -> (f String -> State Int String) -> State Int String
         ppSys sys f = intercalate ", " <$> traverse (ppConstr f) sys

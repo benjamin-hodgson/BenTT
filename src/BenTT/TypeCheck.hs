@@ -149,7 +149,7 @@ infer (HComp ty r r' x sys) = do
 
 infer (Box r r' ty sys) = infer $ HComp U r r' ty sys
 infer (MkBox x sys) = throwError "need type annotation for box"
-infer (Unbox r r' x) = assert (#_Box % _1) =<< infer x
+infer (Unbox r r' x sys) = assert (#_Box % _1) =<< infer x
 
 
 assertEqual :: (Show n, Eq n) => Term n -> Term n -> Tc n ()
@@ -219,7 +219,7 @@ assertEqual x y = join $ eq <$> eval x <*> eval y
             eqSys sys1 sys2
         -- undefined: eta
 
-        eq (Unbox r1 s1 g1) (Unbox r2 s2 g2) = do
+        eq (Unbox r1 s1 g1 sys1) (Unbox r2 s2 g2 sys2) = do
             assertEqual r1 r2
             assertEqual s1 s2
             assertEqual g1 g2

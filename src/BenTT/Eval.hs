@@ -136,15 +136,13 @@ whnf b@(MkBox x sys) =
     case evalSys sys of
         (y:_) -> whnf y
         _ -> return b
-whnf u@(Unbox r r' b)
+whnf u@(Unbox r r' b sys)
     | r == r' = whnf b  -- see "NOTE: equality of dimension terms"
     | otherwise = whnf b >>= \case
         MkBox x _ -> whnf x
-        x -> infer b >>= \case
-            Box r r' a sys -> case evalSys sys of
-                (a:_) -> whnf $ Coe a r' r x  -- undefined: hmm
-                [] -> return u
-            _ -> return u
+        x -> case evalSys sys of
+            (a:_) -> whnf $ Coe a r' r x
+            [] -> return u
 
 
 evalSys :: (Show n, Eq n) => System f n -> [f n]
