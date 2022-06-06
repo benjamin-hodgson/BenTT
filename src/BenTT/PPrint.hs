@@ -6,7 +6,7 @@ import Data.List (intercalate)
 
 import Bound (instantiate1)
 
-import BenTT.Syntax (Term(..), Constraint(..), Face(..), (:*)(..), System)
+import BenTT.Syntax (Term(..), Constraint(..), Face(..), System)
 
 
 pprint' :: Show a => Term a -> String

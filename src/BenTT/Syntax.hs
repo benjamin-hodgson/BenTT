@@ -5,7 +5,6 @@
 {-# LANGUAGE TypeOperators #-}
 
 module BenTT.Syntax (
-    (:*)(..),
     Type,
     Term(..),
     System,
@@ -38,12 +37,6 @@ infixl 2 :@
 infixl 2 :$
 infix 0 :>
 infix 1 :=
-
-data (f :* g) x = f x :* g x
-    deriving (Eq, Show, Read, Functor, Foldable, Traversable, Generic, Generic1)
-    deriving (Eq1, Show1, Read1) via FunctorClassesDefault (f :* g)
-bindPair :: Monad f => (f :* f) a -> (a -> f b) -> (f :* f) b
-bindPair (f :* g) k = (f >>= k) :* (g >>= k)
 
 
 type Type = Term

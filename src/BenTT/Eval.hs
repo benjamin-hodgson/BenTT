@@ -15,7 +15,7 @@ import Optics ((&), (%~))
 import BenTT.DeBruijn (deBruijn, hoas, suc, suc2, xchgScope)
 import BenTT.Equiv (coeEquiv, idEquiv)
 import BenTT.Paths (comp)
-import BenTT.Syntax (Term(..), Constraint(..), Face(..), System, (:*)(..))
+import BenTT.Syntax (Term(..), Constraint(..), Face(..), System)
 import BenTT.Types (Tc, extend1)
 import BenTT.TypeCheck (infer, assertEqual)
 

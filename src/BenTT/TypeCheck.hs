@@ -31,7 +31,6 @@ import BenTT.Syntax (
     Term(..),
     Constraint(..),
     Face(..),
-    (:*)(..),
     System,
     Type,
     faceParts
@@ -185,8 +184,8 @@ assertEqual x y = join $ eq <$> eval x <*> eval y
             assertEqual f g
             assertEqual x y
 
-        eq (Lam t (fromScope -> b1)) (Lam _ (fromScope -> b2))
-            = extend1 t $ assertEqual b1 b2  -- assume types equal
+        eq (Lam t (fromScope -> b1)) (Lam _ (fromScope -> b2)) =
+            extend1 t $ assertEqual b1 b2  -- assume types equal
         eq (Lam t (fromScope -> b)) f = etaLam t b f
         eq f (Lam t (fromScope -> b)) = etaLam t b f
 
@@ -211,8 +210,8 @@ assertEqual x y = join $ eq <$> eval x <*> eval y
             assertEqual p q
             assertEqual x y
 
-        eq (DLam (fromScope -> b1)) (DLam (fromScope -> b2))
-            = extend1 I $ assertEqual b1 b2
+        eq (DLam (fromScope -> b1)) (DLam (fromScope -> b2)) =
+            extend1 I $ assertEqual b1 b2
         eq (DLam (fromScope -> b)) p = etaDLam b p
         eq p (DLam (fromScope -> b)) = etaDLam b p
 
