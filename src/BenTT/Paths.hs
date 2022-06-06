@@ -31,11 +31,11 @@ refl :: Term n -> Term n
 refl = DLam . lift
 
 comp :: Scope () Type n -> Term n -> Term n -> Term n -> System (Scope () Term) n -> Term n
-comp a i j x sys = HComp
-    (instantiate1 j a)
-    i j
-    (Coe a i j x)
-    [f :> y & deBruijn %~ Coe (suc a) (Var $ B ()) (suc j) | f :> y <- sys]
+comp a r r' x sys = HComp
+    (instantiate1 r' a)
+    r r'
+    (Coe a r r' x)
+    [f :> y & deBruijn %~ Coe (suc a) (Var $ B ()) (suc r') | f :> y <- sys]
 
 -- funext : (A B : U) (f g : A -> B)
 --   ((x : A) -> Path B (f x) (g x))

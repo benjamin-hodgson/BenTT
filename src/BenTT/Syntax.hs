@@ -2,7 +2,6 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE TypeOperators #-}
 
 module BenTT.Syntax (
     Type,
@@ -52,6 +51,14 @@ data Term n
     | Sig (Type n) (Scope () Type n)
     | Fst (Term n) | Snd (Term n)
     | Let (Type n) (Term n) (Scope () Term n)
+    -- NOTE: equality of dimension terms
+    -- =================================
+    -- Since the interval is not Kan, dimension terms can only appear syntactically in limited ways.
+    -- Specifically, the only constructs which can be typed as I are I0, I1 and Var.
+    -- There are never any redexes in the dimensional fragment of the language.
+    -- That means, when comparing dimension terms for equality, we don't need to use `assertEqual` -
+    -- we can get away with alpha equivalence `==`.
+    -- So we don't need to be in the `Tc` monad to compare dimensions.
     | I
     | I0 | I1
     | Term n :@ Term n

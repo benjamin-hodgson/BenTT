@@ -3,21 +3,16 @@
 
 module BenTT.Eval (whnf) where
 
-import Control.Applicative ((<|>), empty)
-import Control.Monad (filterM)
 import Control.Monad.Trans (lift)
-import Data.Foldable (asum, traverse_)
-import Data.Functor (($>))
 
 import Bound (fromScope, instantiate1, toScope)
 import Optics ((&), (%~))
 
 import BenTT.DeBruijn (deBruijn, hoas, suc, suc2, xchgScope)
-import BenTT.Equiv (coeEquiv, idEquiv)
 import BenTT.Paths (comp)
 import BenTT.Syntax (Term(..), Constraint(..), Face(..), System)
 import BenTT.Types (Tc, extend1)
-import BenTT.TypeCheck (infer, assertEqual)
+import BenTT.TypeCheck (infer)
 
 whnf :: (Show n, Eq n) => Term n -> Tc n (Term n)
 whnf Hole = return Hole
@@ -93,7 +88,8 @@ whnf c@(Coe (fromScope -> a) r r' x) =
                         [k := I1] :> suc (toScope n)
                     ]
         -- undefined: Box
-        _ -> (assertEqual r r' *> whnf x) <|> return c
+        _ | r == r' -> whnf x  -- see "NOTE: equality of dimension terms"
+          | otherwise -> return c
 
 whnf h@(HComp a r r' x sys) =
     whnf a >>= \case
@@ -127,37 +123,28 @@ whnf h@(HComp a r r' x sys) =
                     [f :> y & deBruijn %~ (:@ suc k) | f :> y <- sys']
         U -> whnf $ Box r r' x sys
         -- undefined: Box
-        _ -> asum [
-            -- are we on a wall?
-            evalSys sys >>= \case
+        _ -> case evalSys sys of
                 (c:_) -> whnf (instantiate1 r' c)
-                [] -> empty,
-            assertEqual r r' *> whnf x,  -- we're on a road to nowhere
-            return h
-            ]
+                [] -> if r == r' then whnf x else return h  -- see "NOTE: equality of dimension terms"
 
 whnf b@(Box r r' a sys) =
-    evalSys sys >>= \case
+    case evalSys sys of
         (b:_) -> whnf (instantiate1 r' b)
-        [] -> assertEqual r r' *> whnf a
-            <|> return b
+        [] | r == r' -> whnf a  -- see "NOTE: equality of dimension terms"
+           | otherwise -> return b
 whnf b@(MkBox x sys) =
-    evalSys sys >>= \case
+    case evalSys sys of
         (y:_) -> whnf y
         _ -> return b
 whnf u@(Unbox r r' b) =
     whnf b >>= \case
         MkBox x _ -> whnf x
         x -> infer b >>= \case
-            Box r r' a sys -> evalSys sys >>= \case
+            Box r r' a sys -> case evalSys sys of
                 (b:_) -> whnf $ Coe b r' r x
-                _ -> assertEqual r r' $> x <|> return u
-            _ -> assertEqual r r' $> x <|> return u
-    
+                [] -> return (if r == r' then x else u)  -- see "NOTE: equality of dimension terms"
+            _ -> return (if r == r' then x else u)  -- see "NOTE: equality of dimension terms"
 
 
-evalSys :: (Show n, Eq n) => System f n -> Tc n [f n]
-evalSys sys = map (\(cof:>x) -> x) <$> filterM active sys
-    where
-        active (cof:>x) = assertOnCof cof $> True <|> pure False
-        assertOnCof = traverse_ (\(i:=j) -> assertEqual i j)
+evalSys :: (Show n, Eq n) => System f n -> [f n]
+evalSys sys = [x | cof:>x <- sys, all (\(i:=j) -> i==j) cof]  -- see "NOTE: equality of dimension terms"
