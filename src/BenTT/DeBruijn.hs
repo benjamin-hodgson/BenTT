@@ -13,6 +13,7 @@ module BenTT.DeBruijn (
     xchg,
     xchgScope,
     addToSubst,
+    appendSubst,
     applySubst,
     emptySubst,
     unsafeClosed, unsafeClosed'
@@ -54,6 +55,9 @@ newtype Subst f n = Subst { unSubst :: [(n, f n)] }
     deriving (Show, Read, Eq, Functor, Foldable, Traversable, Generic)
 
 emptySubst = Subst []
+
+appendSubst :: (Eq n, Monad f) => Subst f n -> Subst f n -> Subst f n
+appendSubst subst = foldr (uncurry addToSubst) subst . unSubst
 
 addToSubst :: (Eq n, Monad f) => n -> f n -> Subst f n -> Subst f n
 addToSubst n x (Subst subst) = Subst $ (n, x) : [(m, substitute n x y) | (m, y) <- subst]

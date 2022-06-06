@@ -4,8 +4,9 @@
 
 module BenTT.TypeCheck (check, infer, assertEqual, assert) where
 
-import Control.Monad.Except (join, throwError)
-import Data.Foldable (asum, for_, traverse_)
+import Control.Monad (join)
+import Control.Monad.Except (throwError)
+import Data.Foldable (for_, traverse_)
 import Data.Function (on)
 
 import Bound (Scope, Var(..), fromScope, toScope, instantiate1, substitute)
@@ -13,8 +14,7 @@ import Optics (
     Optic',
     Is,
     An_AffineFold,
-    foldMapOf,
-    traversed,
+    each,
     _1,
     _2,
     (&),
@@ -23,15 +23,14 @@ import Optics (
     (^?)
     )
 
-import BenTT.DeBruijn (Subst, addToSubst, applySubst, emptySubst, suc, deBruijn)
+import BenTT.DeBruijn (Subst, addToSubst, applySubst, emptySubst, suc, deBruijn, appendSubst)
 import BenTT.PPrint (pprint')
 import BenTT.Syntax (
     Term(..),
     Constraint(..),
     Face(..),
     System,
-    Type,
-    faceParts
+    Type
     )
 import BenTT.Types (Tc, extend1, lookupTy, eval, withError)
 
@@ -60,10 +59,11 @@ check x t = withError (++ "\nwhen checking " ++ pprint' x ++ " against " ++ ppri
         ck (MkBox x sys) (Box r r' ty sys') = do
             check x ty
             -- undefined: check that the sys cofibration agrees with the sys' one
-            for_ sys $ \(cof:>y) ->
-                for_ (findAdjacent cof sys') $ \(subst, t) -> do
-                    check y (instantiate1 (applySubst subst r') (t & deBruijn %~ applySubst (suc subst)))
-                    (assertEqual `on` applySubst subst) (Coe t r r' x) y
+            for_ (solve sys) $ \(subst, y) ->
+                for_ (findAdjacent subst sys') $ \(subst', t) -> do
+                    let subst'' = subst `appendSubst` subst'
+                    check y (instantiate1 (applySubst subst'' r') (t & deBruijn %~ applySubst (suc subst'')))
+                    (assertEqual `on` applySubst subst'') (Coe t r r' x) y
         ck x t = do
             t1 <- infer x
             assertEqual t t1
@@ -130,12 +130,11 @@ infer (HComp ty r r' x sys) = do
     check r' I
     check x ty
     traverse_ checkTypes sys  -- the constraints should be well formed
-    for_ sys $ \(cof:>y) -> do
-        for_ (solveCof cof) $ \subst -> do
-            -- the faces should agree with y at the base
-            (assertEqual `on` applySubst subst) x (instantiate1 r y)
-            -- the faces should agree with each other (at all k) where they meet
-            checkAdjacent cof y
+    for_ (solve sys) $ \(subst, y) -> do
+        -- the faces should agree with y at the base
+        (assertEqual `on` applySubst subst) x (instantiate1 r y)
+        -- the faces should agree with each other (at all k) where they meet
+        checkAdjacent subst y
     return ty
 
     where
@@ -240,14 +239,14 @@ assertEqual x y = join $ eq <$> eval x <*> eval y
         eqSys sys1 sys2 = undefined
 
 
-findAdjacent :: (Show n, Eq n) => [Face n] -> System (Scope () Term) n -> [(Subst Term n, Scope () Term n)]
-findAdjacent cof sys = [
-    (subst', z & deBruijn %~ applySubst (suc subst)) |
-        let Just subst = solveCof cof,
-        cof':>z <- sys,
-        let cof'' = cof' & traversed % faceParts %~ applySubst subst,
-        let Just subst' = solveCof cof''
-    ]
+findAdjacent :: (Show n, Eq n) => Subst Term n -> System (Scope () Term) n -> [(Subst Term n, Scope () Term n)]
+findAdjacent subst sys = solve $ sys
+    & each % _1 % each % each %~ applySubst subst
+    & each % _2 % deBruijn %~ applySubst (suc subst)
+
+
+solve :: (Show n, Eq n) => System f n -> [(Subst Term n, f n)]
+solve sys = [(subst, z) | cof:>z <- sys, Just subst <- [solveCof cof]]
 
 
 solveCof :: (Show n, Eq n) => [Face n] -> Maybe (Subst Term n)
@@ -260,7 +259,7 @@ solveCof ((i := j):cof)
 
 composeFaceSubst :: (Show n, Eq n) => n -> Term n -> [Face n] -> Maybe (Subst Term n)
 composeFaceSubst r r' cof =
-    let cof' = cof & traversed % faceParts %~ substitute r r'
+    let cof' = cof & each % each %~ substitute r r'
     in fmap (addToSubst r r') (solveCof cof')
 
 

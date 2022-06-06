@@ -2,13 +2,14 @@
 {-# LANGUAGE DeriveTraversable #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
 
 module BenTT.Syntax (
     Type,
     Term(..),
     System,
     Constraint(..),
-    Face(..), faceParts,
+    Face(..),
     pi,
     sig,
     prod,
@@ -30,7 +31,7 @@ import Prelude hiding (pi)
 import Bound (Scope(..), Var(F), abstract1, (>>>=))
 import Data.Functor.Classes (Eq1, Read1, Show1)
 import Data.Functor.Classes.Generic (FunctorClassesDefault(..))
-import Optics (Iso, Traversal, (&), (%~), traversalVL, iso)
+import Optics (Iso, Traversal, (&), (%~), iso, Field1, Field2, Each(..), itraversalVL)
 
 infixl 2 :@
 infixl 2 :$
@@ -78,12 +79,17 @@ data Constraint f n = [Face n] :> f n
     deriving (Eq, Show, Read, Functor, Foldable, Traversable, Generic, Generic1)
     deriving (Eq1, Show1, Read1) via FunctorClassesDefault (Constraint f)
 
+instance Field1 (Constraint f n) (Constraint f n) [Face n] [Face n]
+instance Field2 (Constraint f n) (Constraint g n) (f n) (g n)
+
 data Face n = Term n := Term n
     deriving (Eq, Show, Read, Functor, Foldable, Traversable, Generic, Generic1)
     deriving (Eq1, Show1, Read1) via FunctorClassesDefault Face
 
-faceParts :: Traversal (Face n) (Face m) (Term n) (Term m)
-faceParts = traversalVL $ \f (i:=j) -> liftA2 (:=) (f i) (f j)
+instance Field1 (Face n) (Face n) (Term n) (Term n)
+instance Field2 (Face n) (Face n) (Term n) (Term n)
+instance Each (Either () ()) (Face n) (Face m) (Term n) (Term m) where
+    each = itraversalVL $ \f (i:=j) -> liftA2 (:=) (f (Left ()) i) (f (Right ()) j)
 
 bindSys :: (f n -> (n -> Term m) -> f m) -> (n -> Term m) -> System f n -> System f m
 bindSys embed k sys = [[(i >>= k) := (j >>= k) | i:=j <- cof] :> embed x k | cof :> x <- sys]
