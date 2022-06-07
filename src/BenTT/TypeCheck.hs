@@ -64,6 +64,10 @@ check x t = withError (++ "\nwhen checking " ++ pprint' x ++ " against " ++ ppri
                     let subst'' = subst `appendSubst` subst'
                     check y (instantiate1 (applySubst subst'' r') (t & deBruijn %~ applySubst (suc subst'')))
                     (assertEqual `on` applySubst subst'') (Coe t r r' x) y
+        ck (Unbox r r' x sys) a = do
+            let box = Box r r' a sys
+            check box U
+            check x box
         ck x t = do
             t1 <- infer x
             assertEqual t t1
@@ -149,7 +153,7 @@ infer (HComp ty r r' x sys) = do
 
 infer (Box r r' ty sys) = infer $ HComp U r r' ty sys
 infer (MkBox x sys) = throwError "need type annotation for box"
-infer (Unbox r r' x sys) = assert (#_Box % _1) =<< infer x
+infer (Unbox r r' x sys) = throwError "need type annotation for unbox"
 
 
 assertEqual :: (Show n, Eq n) => Term n -> Term n -> Tc n ()
