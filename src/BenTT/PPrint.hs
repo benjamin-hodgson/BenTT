@@ -117,7 +117,7 @@ pprint m = evalState (pp m) 0
         ppSys sys f = intercalate ", " <$> traverse (ppConstr f) sys
 
         ppConstr f (cof :> x) = do
-            cof' <- unwords <$> traverse ppFace cof
+            cof' <- ppFace cof
             x' <- f x
             return $ cof' ++ " |> " ++ x'
 

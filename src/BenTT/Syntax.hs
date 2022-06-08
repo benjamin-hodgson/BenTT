@@ -29,7 +29,7 @@ import GHC.Generics (Generic, Generic1)
 import Prelude hiding (pi)
 
 import Bound (Scope(..), Var(F), abstract1, (>>>=))
-import Data.Functor.Classes (Eq1, Read1, Show1)
+import Data.Functor.Classes (Eq1, Read1, Show1, Ord1)
 import Data.Functor.Classes.Generic (FunctorClassesDefault(..))
 import Optics (Iso, Traversal, (&), (%~), iso, Field1, Field2, Each(..), itraversalVL)
 
@@ -70,21 +70,21 @@ data Term n
     | Box (Term n) (Term n) (Term n) (System (Scope () Term) n)  -- hcomp U r->r' A [i=j |> <k>B, ...]
     | MkBox (Term n) (System Term n)  -- mkbox x [i=j |> y, ...]
     | Unbox (Term n) (Term n) (Term n) (System (Scope () Type) n)  -- Unbox r<-r' g [i=j |> <k>B, ...]
-    deriving (Eq, Show, Read, Functor, Foldable, Traversable, Generic, Generic1)
-    deriving (Eq1, Show1, Read1) via FunctorClassesDefault Term
+    deriving (Eq, Ord, Show, Read, Functor, Foldable, Traversable, Generic, Generic1)
+    deriving (Eq1, Ord1, Show1, Read1) via FunctorClassesDefault Term
 
 type System f n = [Constraint f n]
 
-data Constraint f n = [Face n] :> f n
-    deriving (Eq, Show, Read, Functor, Foldable, Traversable, Generic, Generic1)
-    deriving (Eq1, Show1, Read1) via FunctorClassesDefault (Constraint f)
+data Constraint f n = Face n :> f n
+    deriving (Eq, Ord, Show, Read, Functor, Foldable, Traversable, Generic, Generic1)
+    deriving (Eq1, Ord1, Show1, Read1) via FunctorClassesDefault (Constraint f)
 
-instance Field1 (Constraint f n) (Constraint f n) [Face n] [Face n]
+instance Field1 (Constraint f n) (Constraint f n) (Face n) (Face n)
 instance Field2 (Constraint f n) (Constraint g n) (f n) (g n)
 
 data Face n = Term n := Term n
-    deriving (Eq, Show, Read, Functor, Foldable, Traversable, Generic, Generic1)
-    deriving (Eq1, Show1, Read1) via FunctorClassesDefault Face
+    deriving (Eq, Ord, Show, Read, Functor, Foldable, Traversable, Generic, Generic1)
+    deriving (Eq1, Ord1, Show1, Read1) via FunctorClassesDefault Face
 
 instance Field1 (Face n) (Face n) (Term n) (Term n)
 instance Field2 (Face n) (Face n) (Term n) (Term n)
@@ -92,7 +92,7 @@ instance Each (Either () ()) (Face n) (Face m) (Term n) (Term m) where
     each = itraversalVL $ \f (i:=j) -> liftA2 (:=) (f (Left ()) i) (f (Right ()) j)
 
 bindSys :: (f n -> (n -> Term m) -> f m) -> (n -> Term m) -> System f n -> System f m
-bindSys embed k sys = [[(i >>= k) := (j >>= k) | i:=j <- cof] :> embed x k | cof :> x <- sys]
+bindSys embed k sys = [(i >>= k) := (j >>= k) :> embed x k | i:=j :> x <- sys]
 
 instance Applicative Term where
     pure = Var

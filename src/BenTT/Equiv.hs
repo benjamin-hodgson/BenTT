@@ -66,8 +66,8 @@ idIsEquiv = unsafeClosed' $ lam "A" U $
             (lam "fib" (fibre :$ "A" :$ "A" :$ idTm "A" :$ "x") $ dlam "i" $
                 let aux = dlam "j" $
                         HComp "A" I1 "j" "x" [
-                            ["i":=I0] :> abstract1 "k" (Snd "fib" :@ "k"),
-                            ["i":=I1] :> lift "x"]
+                            "i" := I0 :> abstract1 "k" (Snd "fib" :@ "k"),
+                            "i" := I1 :> lift "x"]
                 in Pair (aux :@ I0) aux
             )
     )

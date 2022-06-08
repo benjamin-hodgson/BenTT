@@ -142,8 +142,9 @@ infer (HComp ty r r' x sys) = do
     return ty
 
     where
-        checkTypes (cof:>y) = do
-            traverse_ (\(i:=j) -> check i I *> check j I) cof
+        checkTypes (i:=j:>y) = do
+            check i I
+            check j I
             extend1 I $ check (fromScope y) (suc ty)
 
         checkAdjacent cof (fromScope -> y) =
@@ -245,7 +246,7 @@ assertEqual x y = join $ eq <$> eval x <*> eval y
 
 findAdjacent :: (Show n, Eq n) => Subst Term n -> System (Scope () Term) n -> [(Subst Term n, Scope () Term n)]
 findAdjacent subst sys = solve $ sys
-    & each % _1 % each % each %~ applySubst subst
+    & each % _1 % each %~ applySubst subst
     & each % _2 % deBruijn %~ applySubst (suc subst)
 
 
@@ -253,19 +254,12 @@ solve :: (Show n, Eq n) => System f n -> [(Subst Term n, f n)]
 solve sys = [(subst, z) | cof:>z <- sys, Just subst <- [solveCof cof]]
 
 
-solveCof :: (Show n, Eq n) => [Face n] -> Maybe (Subst Term n)
-solveCof [] = Just emptySubst
-solveCof ((Var i := j):cof) = composeFaceSubst i j cof
-solveCof ((i := Var j):cof) = composeFaceSubst j i cof
-solveCof ((i := j):cof)
-    | i == j = solveCof cof  -- see "NOTE: equality of dimension terms"
+solveCof :: (Show n, Eq n) => Face n -> Maybe (Subst Term n)
+solveCof (Var i := j) = Just $ addToSubst i j emptySubst
+solveCof (i := Var j) = Just $ addToSubst j i emptySubst
+solveCof (i := j)
+    | i == j = Just emptySubst  -- see "NOTE: equality of dimension terms"
     | otherwise = Nothing
-
-composeFaceSubst :: (Show n, Eq n) => n -> Term n -> [Face n] -> Maybe (Subst Term n)
-composeFaceSubst r r' cof =
-    let cof' = cof & each % each %~ substitute r r'
-    in fmap (addToSubst r r') (solveCof cof')
-
 
 assert :: Is k An_AffineFold => Optic' k is s a -> s -> Tc n a
 assert l x = case x^?l of

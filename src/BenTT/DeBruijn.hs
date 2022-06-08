@@ -4,10 +4,7 @@
 
 module BenTT.DeBruijn (
     Subst,
-    suc,
-    suc2,
-    suc3,
-    suc4,
+    suc, suc2, suc3, suc4,
     hoas,
     deBruijn,
     xchg,
@@ -22,7 +19,7 @@ module BenTT.DeBruijn (
 import Data.Maybe (fromJust)
 import GHC.Generics (Generic)
 
-import Bound (Scope, Var(B, F), fromScope, toScope, substitute, closed)
+import Bound (Scope, Var(..), fromScope, toScope, substitute, closed)
 import Optics (Iso, iso, (&), (%~))
 
 suc :: Functor f => f n -> f (Var b n)
@@ -41,10 +38,10 @@ hoas f = toScope $ f $ pure (B ())
 deBruijn :: (Monad f, Monad f') => Iso (Scope b f a) (Scope b' f' a') (f (Var b a)) (f' (Var b' a'))
 deBruijn = iso fromScope toScope
 
-xchgScope :: Monad f => Scope b1 f (Var b2 a) -> Scope b2 f (Var b1 a)
+xchgScope :: Monad f => Scope b1 f (Var b2 n) -> Scope b2 f (Var b1 n)
 xchgScope s = s & deBruijn %~ xchg
 
-xchg :: Functor f => f (Var b1 (Var b2 a)) -> f (Var b2 (Var b1 a))
+xchg :: Functor f => f (Var b1 (Var b2 n)) -> f (Var b2 (Var b1 n))
 xchg = fmap f
     where
         f (B b) = F (B b)

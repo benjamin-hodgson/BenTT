@@ -5,11 +5,11 @@ module BenTT.Eval (whnf) where
 
 import Control.Monad.Trans (lift)
 
-import Bound (fromScope, instantiate1, toScope)
+import Bound (Var(..), fromScope, toScope, instantiate1, (>>>=))
 import Optics ((&), (%~), (%), _2, each)
 
 import BenTT.DeBruijn (deBruijn, hoas, suc, suc2, xchgScope)
-import BenTT.Paths (comp)
+import BenTT.Paths (comp, gcomp)
 import BenTT.Syntax (Term(..), Constraint(..), Face(..), System)
 import BenTT.Types (Tc, extend1)
 import BenTT.TypeCheck (infer)
@@ -53,10 +53,10 @@ whnf l@(DLam _) = return l
 whnf p@(PathD {}) = return p
 
 -- undefined: gotta clean up these fillers
-whnf c@(Coe (fromScope -> a) r r' x)
-    | r == r' = whnf x  -- see "NOTE: equality of dimension terms"
+whnf c@(Coe (fromScope -> a) r r' tm)
+    | r == r' = whnf tm  -- see "NOTE: equality of dimension terms"
     | otherwise = extend1 I (whnf a) >>= \case
-        U -> whnf x
+        U -> whnf tm
         Pi (toScope -> dom) range -> return $
             Lam (instantiate1 r' dom) $ hoas $ \arg ->
                 Coe
@@ -64,17 +64,17 @@ whnf c@(Coe (fromScope -> a) r r' x)
                     (hoas $ \j -> instantiate1 (Coe (suc2 dom) j (suc2 r) (suc arg)) (fmap suc range))
                     (suc r)
                     (suc r')
-                    (suc x :$ Coe (suc dom) (suc r') (suc r) arg)
+                    (suc tm :$ Coe (suc dom) (suc r') (suc r) arg)
         Sig (toScope -> a) b -> return $ Pair
-            (Coe a r r' (Fst x))
+            (Coe a r r' (Fst tm))
             (Coe
                 -- not suc-ing b inside this hoas because we want b's free variable to refer to j
-                (hoas $ \j -> instantiate1 (Coe (suc a) (suc r) j (suc $ Fst x)) b)
+                (hoas $ \j -> instantiate1 (Coe (suc a) (suc r) j (suc $ Fst tm)) b)
                 r
                 r'
-                (Snd x)
+                (Snd tm)
             )
-        PathD ty m n -> return $
+        PathD ty p0 p1 -> return $
             DLam $ hoas $ \k ->
                 comp
                     -- `ty` is a scope over `k` with a free variable `r`.
@@ -83,16 +83,48 @@ whnf c@(Coe (fromScope -> a) r r' x)
                     (xchgScope ty)
                     (suc r)
                     (suc r')
-                    (suc x :@ k)
+                    (suc tm :@ k)
                     [
-                        [k := I0] :> suc (toScope m),
-                        [k := I1] :> suc (toScope n)
+                        k := I0 :> suc (toScope p0),
+                        k := I1 :> suc (toScope p1)
                     ]
-        -- undefined: Box
+        -- undefined: this code is hideous
+        Box s s' a sys -> do
+            let n b = let x = Var $ F (B ())
+                          z = Var $ B ()
+                      in Coe
+                            (suc b)
+                            (suc s')
+                            (suc z)
+                            (Coe (suc2 $ toScope $ instantiate1 s' b) (suc2 r) x (suc2 tm))
+            let o = toScope $
+                    let z = Var $ B ()
+                        body = HComp (suc a) (suc s') z (suc $ Unbox s s' (suc tm) sys) (fmap suc [cof :> toScope (Coe (suc b) z (suc s) (n b)) | cof:>b <- sys])
+                    in body >>= \case
+                        F (B ()) -> suc r
+                        B () -> Var (B ())
+                        F n -> Var n
+            let p = gcomp
+                    (suc $ toScope a)
+                    (suc r)
+                    (suc r')
+                    (suc $ instantiate1 (instantiate1 r (toScope s)) o)
+                    ([cof :> toScope (n b >>= \case { B () -> suc s; F (B ()) -> Var (B ()); F n -> Var (F n) }) | cof:>b <- sys]
+                        ++ [s := s' :> suc (toScope (Coe (suc $ toScope a) (suc r) (Var $ B ()) (suc tm)))])
+            let q b = gcomp
+                    (suc $ b >>>= \case { B () -> r'; F n -> Var n})
+                    (suc $ s >>= \case { B () -> r'; F n -> Var n})
+                    (Var (B ()))
+                    p
+                    ([cof :> suc (toScope (n b >>= \case { B () -> Var (B ()); F (B ()) -> suc r'; F n -> Var n})) | cof:>b <- sys] ++ map suc [r := r' :> toScope (n b >>= \case { B () -> Var (B ()); F (B ()) -> suc r'; F n -> Var n})])
+            return $ instantiate1 r' $ toScope $
+                MkBox
+                    (HComp a s s' p [cof :> toScope (Coe (suc b) (Var (B ())) (suc s') (suc $ q b)) | cof:>b <- sys])
+                    [cof :> (q b >>= \case { B () -> s'; F n -> Var (F n)}) | cof:>b <- sys]
         _ -> return c
 
-whnf h@(HComp a r r' x sys)
-    | r == r' = whnf x  -- see "NOTE: equality of dimension terms"
+whnf h@(HComp a r r' tm sys)
+    | r == r' = whnf tm  -- see "NOTE: equality of dimension terms"
     | otherwise = whnf a >>= \case
         Pi dom range -> return $
             Lam dom $ hoas $ \arg ->
@@ -100,28 +132,28 @@ whnf h@(HComp a r r' x sys)
                     (instantiate1 arg (suc range))
                     (suc r)
                     (suc r')
-                    (suc x :$ arg)
+                    (suc tm :$ arg)
                     (fmap suc sys & each % _2 % deBruijn %~ (:$ suc arg))
         Sig a b -> return $
             Pair
-                (HComp a r r' (Fst x) (sys & each % _2 % deBruijn %~ Fst))
+                (HComp a r r' (Fst tm) (sys & each % _2 % deBruijn %~ Fst))
                 (comp
-                    (hoas $ \j -> instantiate1 (HComp (suc a) (suc r) j (suc $ Fst x) (map suc (sys & each % _2 % deBruijn %~ Fst))) (suc b))
+                    (hoas $ \j -> instantiate1 (HComp (suc a) (suc r) j (suc $ Fst tm) (map suc (sys & each % _2 % deBruijn %~ Fst))) (suc b))
                     r
                     r'
-                    (Snd x)
+                    (Snd tm)
                     (sys & each % _2 % deBruijn %~ Snd)
                 )
-        PathD ty m n -> return $
+        PathD ty p0 p1 -> return $
             DLam $ hoas $ \k ->
-                let sys' = fmap suc sys ++ [[k:=I0] :> lift (suc m), [k:=I1] :> lift (suc n)]
+                let sys' = fmap suc sys ++ [k := I0 :> lift (suc p0), k := I1 :> lift (suc p1)]
                 in HComp
                     (instantiate1 k (suc ty))
                     (suc r)
                     (suc r')
-                    (suc x :@ k)
+                    (suc tm :@ k)
                     (sys' & each % _2 % deBruijn %~ (:@ suc k))
-        U -> whnf $ Box r r' x sys
+        U -> whnf $ Box r r' tm sys
         -- undefined: Box
         _ -> case evalSys sys of
                 (c:_) -> whnf (instantiate1 r' c)
@@ -146,4 +178,4 @@ whnf u@(Unbox r r' b sys)
 
 
 evalSys :: (Show n, Eq n) => System f n -> [f n]
-evalSys sys = [x | cof:>x <- sys, all (\(i:=j) -> i==j) cof]  -- see "NOTE: equality of dimension terms"
+evalSys sys = [x | i:=j:>x <- sys, i==j]  -- see "NOTE: equality of dimension terms"
