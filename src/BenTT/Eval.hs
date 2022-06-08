@@ -8,7 +8,7 @@ import Control.Monad.Trans (lift)
 import Bound (Var(..), fromScope, toScope, instantiate1, (>>>=))
 import Optics ((&), (%~), (%), _2, each)
 
-import BenTT.DeBruijn (deBruijn, hoas, suc, suc2, xchgScope)
+import BenTT.DeBruijn (deBruijn, hoas, suc, suc2, xchgScope, suc3)
 import BenTT.Paths (comp, gcomp)
 import BenTT.Syntax (Term(..), Constraint(..), Face(..), System)
 import BenTT.Types (Tc, extend1)
@@ -89,7 +89,7 @@ whnf c@(Coe (fromScope -> a) r r' tm)
                         k := I1 :> suc (toScope p1)
                     ]
         -- undefined: this code is hideous
-        Box s s' a sys -> do
+        Box s s' a sys -> whnf $
             let n b = let x = Var $ F (B ())
                           z = Var $ B ()
                       in Coe
@@ -97,27 +97,27 @@ whnf c@(Coe (fromScope -> a) r r' tm)
                             (suc s')
                             (suc z)
                             (Coe (suc2 $ toScope $ instantiate1 s' b) (suc2 r) x (suc2 tm))
-            let o = toScope $
+                o = toScope $
                     let z = Var $ B ()
                         body = HComp (suc a) (suc s') z (suc $ Unbox s s' (suc tm) sys) (fmap suc [cof :> toScope (Coe (suc b) z (suc s) (n b)) | cof:>b <- sys])
                     in body >>= \case
                         F (B ()) -> suc r
                         B () -> Var (B ())
                         F n -> Var n
-            let p = gcomp
+                p = gcomp
                     (suc $ toScope a)
                     (suc r)
                     (suc r')
                     (suc $ instantiate1 (instantiate1 r (toScope s)) o)
                     ([cof :> toScope (n b >>= \case { B () -> suc s; F (B ()) -> Var (B ()); F n -> Var (F n) }) | cof:>b <- sys]
                         ++ [s := s' :> suc (toScope (Coe (suc $ toScope a) (suc r) (Var $ B ()) (suc tm)))])
-            let q b = gcomp
+                q b = gcomp
                     (suc $ b >>>= \case { B () -> r'; F n -> Var n})
                     (suc $ s >>= \case { B () -> r'; F n -> Var n})
                     (Var (B ()))
                     p
                     ([cof :> suc (toScope (n b >>= \case { B () -> Var (B ()); F (B ()) -> suc r'; F n -> Var n})) | cof:>b <- sys] ++ map suc [r := r' :> toScope (n b >>= \case { B () -> Var (B ()); F (B ()) -> suc r'; F n -> Var n})])
-            return $ instantiate1 r' $ toScope $
+            in instantiate1 r' $ toScope $
                 MkBox
                     (HComp a s s' p [cof :> toScope (Coe (suc b) (Var (B ())) (suc s') (suc $ q b)) | cof:>b <- sys])
                     [cof :> (q b >>= \case { B () -> s'; F n -> Var (F n)}) | cof:>b <- sys]
@@ -154,7 +154,38 @@ whnf h@(HComp a r r' tm sys)
                     (suc tm :@ k)
                     (sys' & each % _2 % deBruijn %~ (:@ suc k))
         U -> whnf $ Box r r' tm sys
-        -- undefined: Box
+        -- undefined: this code is hideous
+        Box s s' a sys' -> whnf $
+            let unsafeUnsuc = fmap (\case { F f -> f; _ -> error "unsafeUnsuc" })
+                p b =
+                    let z = Var (B ())
+                    in HComp
+                        (fromScope b)
+                        (suc r)
+                        (suc r')
+                        (Coe (suc b) (suc s') z (suc tm))
+                        [suc cof :> suc n & deBruijn %~ Coe (suc2 b) (suc2 s') (suc z) | cof:>n <- sys]
+                f c = hoas $ \z ->
+                    HComp
+                        (suc2 a)
+                        (suc2 s')
+                        z
+                        (suc $ Unbox (suc s) (suc s') c (fmap suc sys'))
+                        [suc2 cof :> hoas (\z' -> Coe (suc3 b) z' (suc3 s) (Coe (suc3 b) (suc3 s') z' (suc2 c))) | cof:>b <- sys']
+                o = HComp
+                    a
+                    r r'
+                    (instantiate1 s (unsafeUnsuc (f (suc tm))))
+                    [cof :> hoas (\y -> instantiate1 (suc s) (f n)) | cof:>(fromScope -> n) <- sys]
+                q = HComp
+                    a
+                    s
+                    s'
+                    o
+                    ([cof :> unsafeUnsuc (f (suc $ instantiate1 r' n)) | cof:>n <- sys]
+                        ++ [cof :> hoas (\z -> Coe (suc b) z (suc s) (p b)) | cof:>b <- sys']
+                        ++ [r:=r' :> unsafeUnsuc (f (suc tm))])
+            in MkBox q [cof :> instantiate1 s' (toScope (p b)) | cof:>b <- sys']
         _ -> case evalSys sys of
                 (c:_) -> whnf (instantiate1 r' c)
                 [] -> return h
