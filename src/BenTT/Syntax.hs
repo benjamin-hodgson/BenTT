@@ -41,8 +41,7 @@ infix 1 :=
 
 type Type = Term
 data Term n
-    = Hole
-    | U
+    = U
     | Var n
     | Ann (Term n) (Type n)
     | Term n :$ Term n
@@ -101,7 +100,6 @@ instance Applicative Term where
 instance Monad Term where
     return = Var
 
-    Hole >>= _ = Hole
     U >>= _ = U
     Var x >>= k = k x
     Ann x t >>= k = Ann (x >>= k) (t >>= k)

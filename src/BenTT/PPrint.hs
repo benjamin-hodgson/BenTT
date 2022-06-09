@@ -16,7 +16,6 @@ pprint' = pprint . fmap show
 pprint :: Term String -> String
 pprint m = evalState (pp m) 0
     where
-        pp Hole = return "_"
         pp U = return "U"
         pp (Var n) = return n
         pp (Ann tm ty) = do

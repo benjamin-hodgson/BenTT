@@ -38,8 +38,6 @@ import BenTT.Types (Tc, extend1, lookupTy, eval, withError)
 check :: (Show n, Eq n) => Term n -> Type n -> Tc n ()
 check x t = withError (++ "\nwhen checking " ++ pprint' x ++ " against " ++ pprint' t) (eval t >>= ck x)
     where
-        ck Hole t = do
-            throwError $ "Found hole with type " ++ pprint' t
         ck (Pair x y) (Sig a b) = do
             check x a
             check y (instantiate1 x b)
@@ -73,7 +71,6 @@ check x t = withError (++ "\nwhen checking " ++ pprint' x ++ " against " ++ ppri
             assertEqual t t1
 
 infer :: (Show n, Eq n) => Term n -> Tc n (Type n)
-infer Hole = throwError "can't infer hole"
 infer U = return U  -- type in type
 infer I = throwError "I is not kan"
 infer I0 = return I

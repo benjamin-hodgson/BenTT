@@ -15,7 +15,6 @@ import BenTT.Types (Tc, extend1)
 import BenTT.TypeCheck (infer)
 
 whnf :: (Show n, Eq n) => Term n -> Tc n (Term n)
-whnf Hole = return Hole
 whnf U = return U
 whnf v@(Var _) = return v
 whnf (Ann x _) = whnf x  -- discard annotations when evaluating
@@ -101,8 +100,8 @@ whnf c@(Coe (fromScope -> a) r r' tm)
                     let z = Var $ B ()
                         body = HComp (suc a) (suc s') z (suc $ Unbox s s' (suc tm) sys) (fmap suc [cof :> toScope (Coe (suc b) z (suc s) (n b)) | cof:>b <- sys])
                     in body >>= \case
-                        F (B ()) -> suc r
                         B () -> Var (B ())
+                        F (B ()) -> suc r
                         F n -> Var n
                 p = gcomp
                     (suc $ toScope a)
@@ -125,70 +124,70 @@ whnf c@(Coe (fromScope -> a) r r' tm)
 
 whnf h@(HComp a r r' tm sys)
     | r == r' = whnf tm  -- see "NOTE: equality of dimension terms"
-    | otherwise = whnf a >>= \case
-        Pi dom range -> return $
-            Lam dom $ hoas $ \arg ->
-                HComp
-                    (instantiate1 arg (suc range))
-                    (suc r)
-                    (suc r')
-                    (suc tm :$ arg)
-                    (fmap suc sys & each % _2 % deBruijn %~ (:$ suc arg))
-        Sig a b -> return $
-            Pair
-                (HComp a r r' (Fst tm) (sys & each % _2 % deBruijn %~ Fst))
-                (comp
-                    (hoas $ \j -> instantiate1 (HComp (suc a) (suc r) j (suc $ Fst tm) (map suc (sys & each % _2 % deBruijn %~ Fst))) (suc b))
-                    r
-                    r'
-                    (Snd tm)
-                    (sys & each % _2 % deBruijn %~ Snd)
-                )
-        PathD ty p0 p1 -> return $
-            DLam $ hoas $ \k ->
-                let sys' = fmap suc sys ++ [k := I0 :> lift (suc p0), k := I1 :> lift (suc p1)]
-                in HComp
-                    (instantiate1 k (suc ty))
-                    (suc r)
-                    (suc r')
-                    (suc tm :@ k)
-                    (sys' & each % _2 % deBruijn %~ (:@ suc k))
-        U -> whnf $ Box r r' tm sys
-        -- undefined: this code is hideous
-        Box s s' a sys' -> whnf $
-            let unsafeUnsuc = fmap (\case { F f -> f; _ -> error "unsafeUnsuc" })
-                p b =
-                    let z = Var (B ())
-                    in HComp
-                        (fromScope b)
+    | otherwise = case evalSys sys of
+        (c:_) -> whnf (instantiate1 r' c)
+        [] -> whnf a >>= \case
+            Pi dom range -> return $
+                Lam dom $ hoas $ \arg ->
+                    HComp
+                        (instantiate1 arg (suc range))
                         (suc r)
                         (suc r')
-                        (Coe (suc b) (suc s') z (suc tm))
-                        [suc cof :> suc n & deBruijn %~ Coe (suc2 b) (suc2 s') (suc z) | cof:>n <- sys]
-                f c = hoas $ \z ->
-                    HComp
-                        (suc2 a)
-                        (suc2 s')
-                        z
-                        (suc $ Unbox (suc s) (suc s') c (fmap suc sys'))
-                        [suc2 cof :> hoas (\z' -> Coe (suc3 b) z' (suc3 s) (Coe (suc3 b) (suc3 s') z' (suc2 c))) | cof:>b <- sys']
-                o = HComp
-                    a
-                    r r'
-                    (instantiate1 s (unsafeUnsuc (f (suc tm))))
-                    [cof :> hoas (\y -> instantiate1 (suc s) (f n)) | cof:>(fromScope -> n) <- sys]
-                q = HComp
-                    a
-                    s
-                    s'
-                    o
-                    ([cof :> unsafeUnsuc (f (suc $ instantiate1 r' n)) | cof:>n <- sys]
-                        ++ [cof :> hoas (\z -> Coe (suc b) z (suc s) (p b)) | cof:>b <- sys']
-                        ++ [r:=r' :> unsafeUnsuc (f (suc tm))])
-            in MkBox q [cof :> instantiate1 s' (toScope (p b)) | cof:>b <- sys']
-        _ -> case evalSys sys of
-                (c:_) -> whnf (instantiate1 r' c)
-                [] -> return h
+                        (suc tm :$ arg)
+                        (fmap suc sys & each % _2 % deBruijn %~ (:$ suc arg))
+            Sig a b -> return $
+                Pair
+                    (HComp a r r' (Fst tm) (sys & each % _2 % deBruijn %~ Fst))
+                    (comp
+                        (hoas $ \j -> instantiate1 (HComp (suc a) (suc r) j (suc $ Fst tm) (map suc (sys & each % _2 % deBruijn %~ Fst))) (suc b))
+                        r
+                        r'
+                        (Snd tm)
+                        (sys & each % _2 % deBruijn %~ Snd)
+                    )
+            PathD ty p0 p1 -> return $
+                DLam $ hoas $ \k ->
+                    let sys' = fmap suc sys ++ [k := I0 :> lift (suc p0), k := I1 :> lift (suc p1)]
+                    in HComp
+                        (instantiate1 k (suc ty))
+                        (suc r)
+                        (suc r')
+                        (suc tm :@ k)
+                        (sys' & each % _2 % deBruijn %~ (:@ suc k))
+            U -> whnf $ Box r r' tm sys
+            -- undefined: this code is hideous
+            Box s s' a sys' -> whnf $
+                let unsafeUnsuc = fmap (\case { F f -> f; _ -> error "unsafeUnsuc" })
+                    p b =
+                        let z = Var (B ())
+                        in HComp
+                            (fromScope b)
+                            (suc r)
+                            (suc r')
+                            (Coe (suc b) (suc s') z (suc tm))
+                            [suc cof :> suc n & deBruijn %~ Coe (suc2 b) (suc2 s') (suc z) | cof:>n <- sys]
+                    f c = hoas $ \z ->
+                        HComp
+                            (suc2 a)
+                            (suc2 s')
+                            z
+                            (suc $ Unbox (suc s) (suc s') c (fmap suc sys'))
+                            [suc2 cof :> hoas (\z' -> Coe (suc3 b) z' (suc3 s) (Coe (suc3 b) (suc3 s') z' (suc2 c))) | cof:>b <- sys']
+                    o = HComp
+                        a
+                        r r'
+                        (instantiate1 s (unsafeUnsuc (f (suc tm))))
+                        [cof :> hoas (\y -> instantiate1 (suc s) (f n)) | cof:>(fromScope -> n) <- sys]
+                    q = HComp
+                        a
+                        s
+                        s'
+                        o
+                        ([cof :> unsafeUnsuc (f (suc $ instantiate1 r' n)) | cof:>n <- sys]
+                            ++ [cof :> hoas (\z -> Coe (suc b) z (suc s) (p b)) | cof:>b <- sys']
+                            ++ [r:=r' :> unsafeUnsuc (f (suc tm))])
+                in MkBox q [cof :> instantiate1 s' (toScope (p b)) | cof:>b <- sys']
+            _ -> return h
 
 whnf b@(Box r r' a sys)
     | r == r' = whnf a  -- see "NOTE: equality of dimension terms"
