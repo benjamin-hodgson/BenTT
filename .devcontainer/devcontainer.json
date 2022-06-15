@@ -23,6 +23,6 @@
     // Use 'forwardPorts' to make a list of ports inside the container available locally.
     // "forwardPorts": [],
 
-    "postCreateCommand": "zsh -c 'stack build'",
+    "postCreateCommand": ". ~/.ghcup/env && stack build",
     "remoteUser": "codespace"
 }
